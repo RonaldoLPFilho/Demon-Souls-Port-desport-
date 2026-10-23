@@ -30,3 +30,34 @@ Cada correção (PLAN.md §1.2 regra 7) entra aqui antes do commit, no formato:
   Total: 60 de 61 testes passam; a falha restante (`kernel_file_system`) não tem relação com
   esta mudança (ver STATUS.md, "Problemas conhecidos").
 - Candidato a upstream: sim (correção pequena de portabilidade; só se o Ronaldo quiser abrir).
+
+## FIX-002 — Jogo para em 3–7 s: revert de `c2173801` do upstream (2026-10-23)
+- Fase / área: 3 / recompilador de shaders (`ResourceMaterialization.cpp`, `SrtWalker.cpp`).
+- Sintoma: `EXIT` em `descriptors.cpp:969`, "scalar resource reads overlap a shader buffer write",
+  no ~111º pipeline de compute (CS `0x02632cb15eb8128d`).
+- Evidência antes: `captures/runs/20261023-181455-bisect2-c2173801` (parada a 7,2 s, 111 pipelines
+  de compute); o mesmo em `9dcff95` (`9f88043e`, `890393fb`, `22ef16a0`, `0caf4a6a`).
+- Causa: regressão do upstream. Bissecção em 9 passos (`build/bisect-final.log`): primeiro commit
+  ruim `c2173801` ("shader: skip resources in proven empty unsigned loops"); o pai `56d03f16` é bom.
+  O commit põe `ULessThan32` no plano de recursos e faz `x < 0u` valer falso com `x` desconhecido,
+  o que muda a análise de alcançabilidade usada pela checagem.
+- Mudança: revert do commit inteiro (código e teste), com três marcações `// desport:` (ADR-007).
+- Verificação: `9dcff95` + revert passa do ponto do bloqueio (135 pipelines de compute em 180 s, sem a
+  checagem; `captures/runs/*-bisect2-9dcff95e`). Build do engine e `ctest`: ver STATUS.md.
+- Candidato a upstream: sim, como issue (`docs/upstream/c2173801-demons-souls.md`); a correção certa
+  é do autor da análise, o revert é só nosso.
+
+## FIX-003 — O jogo gravava o próprio log dentro da pasta do dump (2026-10-23)
+- Fase / área: 3 / sistema de arquivos (`engine/src/emulator.cpp`).
+- Sintoma: um `logs/demonssoul_ps5_*.log` novo na pasta do dump a cada execução (21 em
+  `D:\demon\Demon\logs` em 2026-10-23), contra a regra de dump somente leitura (CLAUDE.md).
+- Evidência antes: `log.txt` de `captures/runs/20261023-175642-desport584-boot`:
+  `path = /hostapp/logs/demonssoul_ps5_...log` → `Create: D:/demon/Demon\logs/...`. O KytyPS5 monta
+  `/hostapp` na pasta do jogo (`emulator.cpp`).
+- Causa: o executável é um build com log de desenvolvimento em `/hostapp/logs`.
+- Mudança: `/hostapp/logs` montado em `_HostAppLogs` da pasta de trabalho antes de `/hostapp`
+  (`MountPoints::ResolvePath` fica com o primeiro que casa); uma marcação `// desport:`. O `run.ps1`
+  move esses logs para `captures/runs/<execução>/game_logs/` e a triagem extrai os tempos de
+  inicialização do motor do jogo (`ResourcePool::GatherResourceFileInfo`, `Starting main loop`).
+- Verificação: ver STATUS.md (execução depois da correção sem arquivo novo em `<dump>\logs`).
+- Candidato a upstream: talvez (qualquer jogo com log em `/hostapp` escreve na pasta do jogo).

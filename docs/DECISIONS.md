@@ -332,3 +332,30 @@ estão.
    nesta máquina; em paralelo, o experimento de checagem desativada, se autorizado.
 3. Resultado vira (a) `docs/upstream/<nome>.md` com evidência para o Ronaldo abrir a issue/PR e
    (b) correção no fork marcada `desport:` até o upstream incorporar.
+
+---
+
+## ADR-007 — Reverter no fork o commit do upstream que quebra o jogo (2026-10-23)
+
+**Status:** aceito. O Ronaldo aprovou "basear temporariamente no último upstream bom" para destravar
+as Fases 3 e 4; a bissecção terminou depois e permitiu uma saída mais colada no upstream (ADR-003),
+com o mesmo efeito. Reversível.
+
+**Contexto.** A bissecção do ADR-003 (`build/bisect-final.log`, 9 passos, cache de pipelines frio e
+critério estrito) apontou **`c2173801`** ("shader: skip resources in proven empty unsigned loops",
+17/10/2026) como o primeiro commit ruim; o pai `56d03f16` é bom. Prova direta: a ponta `9dcff95`
+com só esse commit revertido passa do ponto do bloqueio (135 pipelines de compute em 180 s, sem a
+checagem), enquanto a ponta sem o revert para em 7 s no `EXIT` de `descriptors.cpp`.
+
+**Decisão.**
+- Commit base continua **`9dcff95`** (ADR-002). A branch `desport` leva o revert de `c2173801`,
+  marcado `// desport:` e registrado como FIX-002, até o upstream corrigir.
+- A alternativa aprovada antes (recuar a base para `584c2e8`) fica descartada: perderia 81+ commits
+  do upstream para resolver o mesmo bloqueio. A branch local `desport-584` (worktree `build/v584`)
+  serve só de referência e pode ser apagada.
+- O relato para o upstream fica em `docs/upstream/c2173801-demons-souls.md`, escrito e enviado
+  pelo Ronaldo (§11). Quando o upstream corrigir, o revert sai no próximo rebase.
+
+**Consequências.** Nenhum recuo de base; só 3 arquivos do upstream tocados pelo revert (2 do
+recompilador e o teste). Se o upstream mudar esses trechos, o rebase acusa conflito nas linhas
+marcadas.

@@ -18,6 +18,7 @@ Uso:
     python tools/log_triage.py captures/runs/<id>/log.txt --no-write
 """
 import argparse
+from collections import Counter
 import csv
 import json
 from pathlib import Path
@@ -127,6 +128,30 @@ def calls_summary(path):
                 first=sorted(called, key=lambda e: (e['first_ms'] is None, e['first_ms'] or 0))[:TOP])
 
 
+GAME_TIMING = re.compile(r'\[MSG-Init\] (?:(.+?) took ([\d.]+)(m?s)|(Finished Initialization|Starting main loop): ([\d.]+)s)')
+GAME_ERROR = re.compile(r'\[[\d:.]+ ERROR-(\w+)\] (.*)')
+
+
+def game_log_summary(run_dir):
+    """Tempos de inicialização e erros do log do próprio jogo (game_logs/, vindo de /hostapp/logs)."""
+    logs = sorted((run_dir / 'game_logs').glob('*.log'))
+    if not logs:
+        return None
+    timings, errors = {}, Counter()
+    for path in logs:
+        for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
+            m = GAME_TIMING.search(line)
+            if m and m.group(1):
+                sec = float(m.group(2)) / (1000.0 if m.group(3) == 'ms' else 1.0)
+                timings.setdefault(m.group(1), sec)
+            elif m:
+                timings.setdefault(m.group(4), float(m.group(5)))
+            e = GAME_ERROR.search(line)
+            if e:
+                errors[f'{e.group(1)}: {e.group(2)}'] += 1
+    return dict(files=[p.name for p in logs], timings=timings, errors=errors)
+
+
 def load_status():
     path = ROOT / 'out' / 'nid_status.json'
     if not path.exists():
@@ -148,6 +173,7 @@ def triage(target):
     report['run'] = run
     report['memory'] = memory_summary(run_dir / 'memory.csv')
     report['calls'] = calls_summary(run_dir / 'calls.json')
+    report['game_log'] = game_log_summary(run_dir)
     if report['host_exception']:
         report['host_exception']['where'] = locate(report['host_exception']['pc'], report['modules'])
     status = load_status()
@@ -271,6 +297,16 @@ def render(report):
     else:
         L.append('- Sem memory.csv.')
     L.append('')
+    game = report.get('game_log')
+    if game:
+        L.append('## Log do jogo (game_logs/)\n')
+        L.append('| Etapa | s |')
+        L.append('|---|---:|')
+        L.extend(f'| {name} | {sec:.2f} |' for name, sec in game['timings'].items())
+        if game['errors']:
+            L.append('')
+            L.extend(f'- {n}× `{msg}`' for msg, n in game['errors'].most_common(TOP))
+        L.append('')
     calls = report.get('calls')
     if calls:
         L.append('## Rastreamento de chamadas (calls.json)\n')

@@ -43,6 +43,8 @@ param(
     [string]$KytyExe = '',
     # Cenário de tests/regression/scenarios.toml: flags, tempo limite, trace e critérios.
     [string]$Scenario = '',
+    # Pasta de trabalho do processo (padrão user/kyty). Uma pasta vazia dá cache de pipelines frio.
+    [string]$WorkDir = '',
     # Liga o rastreamento de chamadas (DES_TRACE=1 -> calls.json).
     [switch]$Trace,
     # Monta e grava o comando em run.json sem executar.
@@ -235,7 +237,7 @@ if ($Trace) {
 $timer = [Diagnostics.Stopwatch]::StartNew()
 # Pasta de trabalho persistente: o KytyPS5 grava ali _PipelineCache, _DownloadData, _TempData e
 # saves, relativos ao diretório atual. Log, dumps e calls.json vão para $RunDir por caminho absoluto.
-$WorkDir = Join-Path $Root 'user/kyty'
+if (-not $WorkDir) { $WorkDir = Join-Path $Root 'user/kyty' }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 $run.work_dir = $WorkDir
 Save-Run
@@ -281,6 +283,14 @@ if ($exited) {
     $run.result = 'timeout'
 }
 $timer.Stop()
+# Logs do próprio jogo (/hostapp/logs, montado em _HostAppLogs pelo engine desport): vão para a
+# pasta da execução, para não se acumularem em user/.
+$gameLogs = Join-Path $WorkDir '_HostAppLogs'
+if (Test-Path $gameLogs) {
+    $dest = Join-Path $RunDir 'game_logs'
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    Get-ChildItem $gameLogs -File | Move-Item -Destination $dest -Force
+}
 $run.ended = (Get-Date).ToString('o')
 $run.duration_sec = [math]::Round($timer.Elapsed.TotalSeconds, 1)
 Save-Run

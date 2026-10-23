@@ -60,6 +60,9 @@ if ($QtDir) { $cfg += "-DCMAKE_PREFIX_PATH=$QtDir" } else { $cfg += '-DKYTY_BUIL
 
 function Run([string]$Exe, [string[]]$ArgList) {
     Write-Host "> $Exe $($ArgList -join ' ')"
+    # Com a saída redirecionada (*> log), o PowerShell 5.1 transforma o stderr do cmake em erro e o
+    # 'Stop' aborta o script; o resultado vale pelo código de saída.
+    $ErrorActionPreference = 'Continue'
     & $Exe @ArgList
     if ($LASTEXITCODE -ne 0) { Write-Host "falhou ($LASTEXITCODE)" -ForegroundColor Red; exit $LASTEXITCODE }
 }

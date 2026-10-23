@@ -169,21 +169,25 @@
 
 ## Fase 3 — progresso
 
-### Bissecção do bloqueio (ADR-003) — em andamento
-- Worktree `build/bisect` (fora do git do desport), builds do próprio upstream com `NOMINMAX`
-  (alguns commits do intervalo não compilam no Windows pela macro `max`).
-- Critério: ruim = checagem `scalar resource reads ...` dispara; bom = passa do 115º pipeline de
-  compute sem disparar (nas execuções ruins a parada vem no 110º); senão, indeterminado. A primeira
-  rodada usou um critério frouxo (só "não disparou em 60 s") e apontou `63ca9c0b`; **descartada**,
-  porque três commits "bons" nunca chegaram ao ponto do bloqueio.
-- Bons confirmados: `22ff469` (28/09, 131 pipelines), `cb375ec` (135 pipelines, 16 PS),
-  **`584c2e8` (16/10, 167 pipelines, 55 PS)**. Ruim: `9dcff95` (23/10).
-- **Com `584c2e8` o jogo chega à tela de seleção de idioma (56 fps) e o Ronaldo navegou até a
-  criação de personagem**, sem erro, até o tempo limite de 180 s
-  (`captures/screenshots/20261023-584c2e8-language-select.png`). É o ponto mais avançado até agora
-  nesta máquina e confirma a regressão do upstream entre 16/10 e 23/10.
-- Bissecção pausada para a sessão livre do Ronaldo; estado salvo em `build/bisect-saved.log`:
-  bom `584c2e8`, **ruim `0caf4a6`** → culpado entre 81 commits.
+### Bissecção do bloqueio (ADR-003) — concluída
+- 9 passos em `build/bisect` (builds do upstream com `NOMINMAX`, cache de pipelines frio a cada passo,
+  dump no SSD; ruim = checagem `scalar resource reads ...` dispara; bom = passa do 115º pipeline de
+  compute). Log: `build/bisect-final.log`, resumo por passo em `build/bisect-summary.log`.
+- **Primeiro commit ruim: `c2173801`** ("shader: skip resources in proven empty unsigned loops",
+  17/10/2026); o pai `56d03f16` é bom. Prova: `9dcff95` com só esse commit revertido passa.
+- Correção no fork: revert marcado `// desport:` (FIX-002, ADR-007); base continua `9dcff95`.
+  Relato pronto para o Ronaldo: `docs/upstream/c2173801-demons-souls.md`.
+
+### Primeira execução do build desport — `captures/runs/20261023-182308-desport-revert`
+- Engine `9dcff95` + FIX-001 + camada desport (Fase 2) + FIX-002 + FIX-003; dump no SSD
+  (`C:\games\DemonsSouls-PPSA01341`, cópia íntegra de 223.290 arquivos); cache de pipelines aquecido.
+- `ctest`: 60/61 (só KP-001).
+- 240 s sem parada: `flip_1` 3,9 s, `flip_60` 8,5 s, `flip_600` 17,6 s, `first_savedata_mount` 25,1 s,
+  `flip_3600` 67,9 s. Nenhum import ausente chamado, nenhuma mensagem de validação.
+- Nenhum arquivo novo na pasta do dump (FIX-003): o log do jogo foi para `game_logs/`.
+- Log do jogo: `Starting main loop` 2,4 s; `ResourcePool::GatherResourceFileInfo()` **23,5 s** no SSD,
+  contra 3,8–5,4 s nas execuções antigas no HD. A investigar na Fase 4 (desempenho de E/S).
+- Memória: 5,2 GB privados, 108 MB/min nos primeiros 4 min (inclui carregamento; PA-001).
 
 ### Sessão livre do Ronaldo — `captures/runs/20261023-172446-sessao-livre-584c2e8`
 - Build upstream `584c2e8` (sem a camada desport, então sem marcos nem `calls.json`), dump no HD.
@@ -295,8 +299,9 @@
   conhecidos (não bloqueiam a linha de base).
 
 ## Próximo passo concreto
-1. Ronaldo: decidir o portão da Fase 2 (ADR-003 proposto): estratégia colada no upstream e
-   bissecção `22ff469..9dcff95` como primeiro passo da Fase 3.
-2. Ronaldo: como tratar o hook de clang-format nos arquivos do upstream (ver commit pendente do
-   engine) e se o experimento de desativar a checagem pode rodar.
-3. Agente: commit do engine (branch `desport`), ponteiro do submódulo no desport, push.
+1. Ronaldo: abrir a issue do `docs/upstream/c2173801-demons-souls.md` no KytyPS5 (se quiser).
+2. Ronaldo: decidir o hook de clang-format do engine (pular nos arquivos do upstream, recomendado,
+   ou aceitar a reformatação) para commitar a branch `desport`; depois, push.
+3. Ronaldo: autorizar apagar os 28 logs que o jogo gravou em `<dump>\logs` (HD e SSD) antes do FIX-003.
+4. Sessão de jogo com o build desport (cache aquecido, SSD), parada num ponto fixo, para medir fps e
+   a curva de memória (PA-001). Depois, Fase 4 com foco em desempenho, medindo antes de otimizar.

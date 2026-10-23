@@ -86,6 +86,27 @@ class TriageTests(unittest.TestCase):
             self.assertIn('Último marco: **flip_1**', text)
             self.assertIn('**ALERTA**', text)
 
+    def test_game_log_timings_and_errors(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            self.assertIsNone(log_triage.triage(run)[0]['game_log'])
+            (run / 'game_logs').mkdir()
+            # O jogo escreve as linhas em dobro; vale a primeira ocorrência de cada etapa.
+            (run / 'game_logs' / 'g_0.log').write_text(
+                '[MSG-Init] Starting Initialization: 49.5ms\n'
+                '[MSG-Init] Pool::Load() took 437.5ms\n'
+                '[MSG-Init] Finished Initialization: 4.4s\n'
+                '[MSG-Init] Pool::Gather() took 30.9s\n'
+                '[MSG-Init] Pool::Gather() took 99.0s\n'
+                '[00:00:41.51 ERROR-General] could not find "x"\n'
+                '[00:00:41.51 ERROR-General] could not find "x"\n'
+                '[MSG-Init] Starting main loop: 41.5s\n', encoding='utf-8')
+            game = log_triage.triage(run)[0]['game_log']
+            self.assertEqual(game['timings'], {'Pool::Load()': 0.4375, 'Finished Initialization': 4.4,
+                                               'Pool::Gather()': 30.9, 'Starting main loop': 41.5})
+            self.assertEqual(dict(game['errors']), {'General: could not find "x"': 2})
+            self.assertIn('| Pool::Gather() | 30.90 |', log_triage.render(log_triage.triage(run)[0]))
+
     def test_flat_memory_has_no_alert(self):
         with tempfile.TemporaryDirectory() as root:
             report, _ = log_triage.triage(make_run(root, growth=False))
