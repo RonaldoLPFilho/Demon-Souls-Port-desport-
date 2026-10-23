@@ -507,8 +507,8 @@ def main(argv=None):
     parser.add_argument('--names', type=Path, help='arquivo opcional com nomes de símbolos, um por linha')
     parser.add_argument('--out-dir', type=Path, default=ROOT / 'out')
     parser.add_argument('--imports-md', type=Path, default=ROOT / 'docs' / 'IMPORTS.md')
-    parser.add_argument('--gpu-surface', type=Path, default=ROOT / 'out' / 'gpu_surface.md',
-                        help='tabela da superfície AGC/VideoOut (resumo vai para docs/GPU_NOTES.md à mão)')
+    parser.add_argument('--gpu-surface', type=Path, default=ROOT / 'docs' / 'GPU_SURFACE.md',
+                        help='tabela da superfície AGC/VideoOut/Ampr (resumo em docs/GPU_NOTES.md)')
     args = parser.parse_args(argv)
     if not args.engine.is_dir():
         parser.error(f'{args.engine} não existe (git submodule update --init --recursive)')

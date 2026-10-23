@@ -217,7 +217,8 @@ class ResolveTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 code = nid_db.main(['--engine', str(Path(self.tmp.name) / 'engine' / 'src'),
                                     '--inventory', str(inv), '--out-dir', str(Path(root) / 'out'),
-                                    '--imports-md', str(md)])
+                                    '--imports-md', str(md),
+                                    '--gpu-surface', str(Path(root) / 'GPU_SURFACE.md')])
             self.assertEqual(code, 0)
             text = md.read_text(encoding='utf-8')
             self.assertIn('| `missing` | 2 | 40.0% |', text)

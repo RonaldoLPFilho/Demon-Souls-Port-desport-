@@ -8,7 +8,7 @@ problema gráfico investigado ganha uma seção com captura, draw/dispatch respo
 
 Gerada por `tools/nid_db.py` a partir do inventário do eboot (PPSA01341 01.007.000) e do engine
 em `9dcff95` + FIX-001. A tabela por função (NID, nome verificado, status, função do engine,
-sítios de chamada) fica em `out/gpu_surface.md`, fora do git.
+sítios de chamada) está em [`GPU_SURFACE.md`](GPU_SURFACE.md) (ADR-005).
 
 | Biblioteca importada | implemented | stub | missing | total | sítios de chamada |
 |---|---:|---:|---:|---:|---:|

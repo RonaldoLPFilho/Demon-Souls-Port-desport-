@@ -234,3 +234,23 @@ quadros intercalados e controle o ritmo de exibição; isso deve ser considerado
 `videoOut` nas Fases 3–4. Vantagem esperada sobre o Bloodborne: o Demon's Souls de PS5 é de
 2020 e usa reconstrução temporal, então é provável que já gere vetores de movimento e jitter
 (a confirmar na Fase 4), enquanto o bbport precisou calculá-los à mão.
+
+---
+
+## ADR-005 — Tabelas de cobertura do jogo em `docs/` (2026-10-23)
+
+**Status:** aceito (decisão do Ronaldo).
+
+**Contexto.** O PLAN.md §1.1 proíbe no git qualquer coisa derivada do jogo (imagens linkadas,
+dumps de shader/comando, capturas...). O próprio plano, porém, prevê `docs/IMPORTS.md` gerado com
+NIDs, nomes, status e endereços de chamada no eboot. São metadados sobre quais funções do
+sistema o executável importa e onde, não conteúdo do jogo (código, dados ou recursos).
+
+**Decisão.** `docs/IMPORTS.md` (cobertura de todos os imports) e `docs/GPU_SURFACE.md` (tabela
+da superfície AGC/AgcDriver/VideoOut/Ampr) ficam em `docs/`, gerados por `tools/nid_db.py`.
+Continuam fora do git: `out/inventory.json`, `out/nid_status.json`, `out/nid_db.json`, logs,
+dumps de command buffers, shaders, capturas e qualquer byte do executável ou dos dados.
+
+**Consequências.** A exceção vale só para tabelas de metadados de API (NID, nome verificado,
+biblioteca, status no engine, contagem e primeiros endereços de chamada). Novos relatórios
+gerados que contenham mais do que isso precisam de decisão própria.

@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual: 1 — Inventário estático** (PLAN.md §6). Fase 0 concluída em 2026-10-23.
+**Fase atual: 2 — Fork, camada do jogo e harness** (PLAN.md §6). Fases 0 e 1 concluídas em 2026-10-23.
 
 ## Fase 0 — progresso
 
@@ -126,9 +126,9 @@
 |---|---|---|---|
 | 1 | `tools/inspect_self.py` | feito (2026-10-23) | `out/inventory.json`: 3 executáveis, 1395 imports (1296 NIDs), 47.817 exports. Parser em `tools/ps5elf.py`. Validação: 1157 stubs PLT = 1157 `JUMP_SLOT`. |
 | 2 | `tools/nid_db.py` | feito (2026-10-23) | 1788 registros HLE (1736 NIDs), 139 stubs prováveis, 1440 nomes verificados por hash. Regras de stub documentadas no relatório. |
-| 3 | `IMPORTS.md` | gerado e revisado; local a decidir | Hoje em `out/IMPORTS.md` (contém NIDs e endereços do eboot). Ver números abaixo. |
+| 3 | `IMPORTS.md` | feito (2026-10-23) | [`docs/IMPORTS.md`](IMPORTS.md), gerado e revisado (ADR-005). Ver números abaixo. |
 | 4 | Varredura de instruções | feito (2026-10-23) | Ver abaixo. |
-| 5 | Superfície AGC | feito (2026-10-23) | Resumo em `docs/GPU_NOTES.md`; tabela por função em `out/gpu_surface.md`. |
+| 5 | Superfície AGC | feito (2026-10-23) | Resumo em `docs/GPU_NOTES.md`; tabela por função em [`docs/GPU_SURFACE.md`](GPU_SURFACE.md). |
 | 6 | Testes | feito (2026-10-23) | 27 testes com ELF/SELF e engine sintéticos: `python -m unittest discover -s tests/tools`. |
 
 ### Cobertura dos imports (tarefa 3)
@@ -161,9 +161,10 @@
 - Memória nessa execução: pico de 3,85 GB privados em 8,7 s (carregamento).
 
 ### Critério de saída da Fase 1
-- `docs/IMPORTS.md` gerado e revisado: **gerado e revisado**, falta a decisão de onde fica.
+- `docs/IMPORTS.md` gerado e revisado: **sim** (ADR-005).
 - Existe um número para "quantas funções faltam": **sim, 160** (eboot).
-- Superfície AGC listada: **sim** (`docs/GPU_NOTES.md`).
+- Superfície AGC listada: **sim** (`docs/GPU_NOTES.md`, `docs/GPU_SURFACE.md`).
+- **Fase 1 fechada em 2026-10-23.**
 
 ## Pontos de atenção
 
@@ -233,7 +234,7 @@
   conhecidos (não bloqueiam a linha de base).
 
 ## Próximo passo concreto
-1. Ronaldo: decidir se as tabelas por função (`IMPORTS.md`, `gpu_surface.md`, com NIDs e
-   endereços do eboot) podem ir para `docs/` ou ficam só em `out/`. Com isso a Fase 1 fecha.
-2. Agente: Fase 2 (camada `game/`, rastreamento de chamadas, marcos no log, `log_triage.py`,
-   `run.ps1` v2, `check.ps1`) e o portão de decisão (ADR-003).
+Fase 2 (PLAN.md §6): camada `game/` com override de HLE por jogo no `runtimeLinker.cpp`,
+rastreamento de chamadas (`DES_TRACE=1` → `calls.json`), marcos no log (`DES_MILESTONE`),
+`tools/log_triage.py` (incluindo crescimento de memória, PA-001), `run.ps1` v2 com cenários,
+`tools/check.ps1`, e o portão de decisão (ADR-003) com o Ronaldo.
