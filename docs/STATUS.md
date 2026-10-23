@@ -1,7 +1,23 @@
 # Estado do projeto
 
-**Fase atual: 3 — Boot completo do sistema** (PLAN.md §6). Fases 0, 1 e 2 concluídas em 2026-10-23
-(portão da Fase 2: ADR-003 aceito).
+**Fase atual: 4 — Gráficos e desempenho**, agora sobre o engine do ADR-008 (KytyPS5-DemonsSouls-FrameGen
+v1.3 + camada desport, branch `desport-fg` do fork). Fases 0–2 concluídas; Fase 3 cumprida na prática
+(menu, criação de personagem, gameplay).
+
+**Meta do Ronaldo (2026-10-23):** o port do Demon's Souls tão estável quanto o bbport do Bloodborne.
+
+## Engine FrameGen (ADR-008) — 2026-10-23
+- Import: upstream `f2455c87` + árvore da v1.3 do ceremony88 (`87183c6d`), compilado com o
+  `build-windows.cmd` deles (clang-cl, -O3 -march=native, ThinLTO, PGO). Execução: `tools/run.ps1
+  -Launch game/config/fg-launch.json` (56 chaves de desempenho do lançador deles; pasta `user/kyty-fg`).
+- **Sessão do Ronaldo** (`captures/runs/20261023-202438-fg-sessao1`, 10 min, saída limpa, sem
+  pré-compilação): travadas em cada etapa nova (compilação de shaders) e **60 fps** depois de carregar,
+  contra ~5 fps no upstream atual. Memória: 5,8 GB no menu, degraus nos carregamentos até 13,8 GB.
+- O build deles gravava logs na pasta do dump (`/hostapp/logs`): corrigido ao portar o FIX-003.
+- Em andamento: pré-compilação estática de shaders (`precompile-windows.ps1`, horas, retomável) e a
+  camada desport portada (marcos, DES_FPS, DES_STAT, hooks do jogo, FIX-003). Ficaram de fora nesta base:
+  o encaixe do `DES_TRACE` na relocação (reescrita por eles) e o `DES_COUNTERS` (não há
+  `Common::DebugCounters`; eles têm `live-counters.h`).
 
 ## Fase 0 — progresso
 
