@@ -359,3 +359,36 @@ checagem), enquanto a ponta sem o revert para em 7 s no `EXIT` de `descriptors.c
 **Consequências.** Nenhum recuo de base; só 3 arquivos do upstream tocados pelo revert (2 do
 recompilador e o teste). Se o upstream mudar esses trechos, o rebase acusa conflito nas linhas
 marcadas.
+
+---
+
+## ADR-008 — Engine baseado no KytyPS5-DemonsSouls-FrameGen (ceremony88 v1.3) (2026-10-23)
+
+**Status:** aceito pelo Ronaldo em 2026-10-23 ("se baseia nesse projeto, e vamos melhorá-lo";
+"aproveitar o que eles têm de bom, mesclar com o nosso, e melhorar"). Substitui a base do ADR-002 e
+do ADR-007 para o engine em uso.
+
+**Contexto.** Com o upstream atual (`9dcff95` + revert de `c2173801`) o jogo roda a ~4,6 fps: a thread
+de GPU do emulador gasta ~110 ms por quadro avaliando recursos de shader e ~60–85 ms em leituras
+síncronas (STATUS, diagnóstico). O projeto https://github.com/ceremony88/KytyPS5-DemonsSouls-FrameGen
+(GPL-2.0, v1.3 de 14/10/2026) é um fork do KytyPS5 dedicado ao Demon's Souls 01.007.000, com meses de
+otimização documentada (draws XPR nativos, thread de gravação Vulkan, fila de readback, JIT de SRT,
+PGO/ThinLTO, pré-compilação estática de shaders, geração de quadros DLSS via Streamline, ultrawide,
+resolução de render). Nesta máquina, sem pré-compilar, o Ronaldo jogou a **60 fps** depois dos
+carregamentos (`captures/runs/20261023-202438-fg-sessao1`, 10 min, saída limpa), contra ~5 fps antes.
+
+**Decisão.**
+- Engine em uso: branch **`desport-fg`** do fork = upstream `f2455c87` (10/09/2026, a base deles,
+  achada por menor diferença de código) + um commit com a árvore da v1.3 deles (`87183c6d`, sem as
+  capturas do jogo em `docs/images/`) + a camada desport portada por cima, cada mudança marcada
+  `// desport:` e registrada em `docs/FIXES.md`.
+- Build: o `build-windows.cmd` deles (clang-cl, -O3 -march=native, ThinLTO, PGO); execução pelo nosso
+  `tools/run.ps1 -Launch game/config/fg-launch.json` (as 56 chaves de desempenho do lançador deles),
+  pasta de trabalho `user/kyty-fg`.
+- A branch `desport` (upstream atual) fica como referência e fonte de cherry-picks; o upstream segue
+  sendo acompanhado, mas a reaproximação é trabalho futuro (o fork deles está ~6 semanas atrás).
+- Meta do Ronaldo: **estabilidade no nível do bbport** — passa a ser o critério das próximas fases
+  (soak longo, memória, crashes conhecidos como o travamento do Shrine of Storms, issue #1 deles).
+
+**Consequências.** Herdamos as otimizações e também a dívida deles (base antiga, ~85 mil linhas de
+mudanças, muitas chaves de ambiente). O crédito aos autores fica no histórico do fork e nos FIXES.

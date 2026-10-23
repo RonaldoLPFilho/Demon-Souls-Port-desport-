@@ -47,6 +47,8 @@ param(
     [string]$WorkDir = '',
     # Liga o rastreamento de chamadas (DES_TRACE=1 -> calls.json).
     [switch]$Trace,
+    # Configuração de lançamento (JSON: environment, flags e, opcionais, kyty_exe e work_dir relativos à raiz).
+    [string]$Launch = '',
     # Liga os contadores de desempenho no log (DES_STATS=1 -> DES_COUNTERS, DES_STAT, DES_STAT_ADDR).
     [switch]$Stats,
     # Monta e grava o comando em run.json sem executar.
@@ -167,6 +169,18 @@ if ($Scenario) {
     if ($scenarioInfo.PSObject.Properties['trace'] -and $scenarioInfo.trace) { $Trace = [switch]$true }
     if (-not $Label) { $Label = $Scenario }
 }
+$launchEnv = @{}
+if ($Launch) {
+    $launchPath = if (Test-Path -LiteralPath $Launch) { (Resolve-Path -LiteralPath $Launch).Path } else { Join-Path $Root $Launch }
+    if (-not (Test-Path -LiteralPath $launchPath)) { Fail "configuração de lançamento não encontrada: $Launch" }
+    $launchInfo = Get-Content -LiteralPath $launchPath -Raw | ConvertFrom-Json
+    foreach ($p in $launchInfo.environment.PSObject.Properties) { $launchEnv[$p.Name] = [string]$p.Value }
+    if ($launchInfo.PSObject.Properties['flags']) { $Flags = @($launchInfo.flags) + @($Flags) }
+    if ($launchInfo.PSObject.Properties['kyty_exe'] -and -not $PSBoundParameters.ContainsKey('KytyExe')) {
+        $KytyExe = Join-Path $Root $launchInfo.kyty_exe
+    }
+    if ($launchInfo.PSObject.Properties['work_dir'] -and -not $WorkDir) { $WorkDir = Join-Path $Root $launchInfo.work_dir }
+}
 # No PowerShell 5.1 um array JSON vazio vira um elemento vazio; descarta-os.
 $Flags = @(@($gameFlags) + @($Flags) | Where-Object { $_ -ne $null -and "$_" -ne '' })
 
@@ -210,6 +224,8 @@ $run = [ordered]@{
     scenario    = $Scenario
     trace       = [bool]$Trace
     stats       = [bool]$Stats
+    launch      = $Launch
+    launch_environment = $launchEnv
     engine_git  = Get-GitInfo (Join-Path $Root 'engine')
     desport_git = Get-GitInfo $Root
     host        = [ordered]@{ machine = $env:COMPUTERNAME; os = [Environment]::OSVersion.VersionString }
@@ -234,6 +250,7 @@ Save-Run
 Write-Host "Executando ($TimeoutSec s): $($run.command)"
 
 if ($Stats) { $env:DES_STATS = '1' }
+foreach ($k in $launchEnv.Keys) { Set-Item -Path "Env:$k" -Value $launchEnv[$k] }
 if ($Trace) {
     $env:DES_TRACE = '1'
     $env:DES_TRACE_FILE = Join-Path $RunDir 'calls.json'
@@ -250,6 +267,7 @@ $proc = Start-Process -FilePath $KytyExe -ArgumentList $argString -WorkingDirect
     -RedirectStandardError (Join-Path $RunDir 'stderr.txt') -PassThru
 [void]$proc.Handle  # no PowerShell 5.1, sem isso ExitCode fica vazio depois do término
 Remove-Item Env:DES_TRACE, Env:DES_TRACE_FILE, Env:DES_STATS -ErrorAction SilentlyContinue
+foreach ($k in $launchEnv.Keys) { Remove-Item -Path "Env:$k" -ErrorAction SilentlyContinue }
 
 # Memória a cada segundo (PA-001 em docs/STATUS.md): privada e working set do processo principal.
 $memFile = Join-Path $RunDir 'memory.csv'
