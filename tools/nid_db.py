@@ -465,6 +465,41 @@ def write_imports_md(path, inventory, rows, registrations, definition_count, nam
     path.write_text('\n'.join(L) + '\n', encoding='utf-8')
 
 
+GPU_LIBRARIES = ('libSceAgc', 'libSceAgcDriver', 'libSceVideoOut', 'libSceAmpr')
+
+
+def write_gpu_surface(path, rows):
+    """Superfície gráfica importada pelo eboot (PLAN.md §6 Fase 1, tarefa 5)."""
+    eboot = [r for r in rows if r['importer'] == 'eboot.bin' and r['library'] in GPU_LIBRARIES]
+    L = ['# Superfície AGC / VideoOut / Ampr importada pelo eboot\n',
+         '> Gerado por `tools/nid_db.py`. Escopo da Fase 4 (PLAN.md §6).\n',
+         '| Biblioteca | implemented | stub | missing | total | sítios de chamada |',
+         '|---|---:|---:|---:|---:|---:|']
+    for lib in GPU_LIBRARIES:
+        items = [r for r in eboot if r['library'] == lib]
+        c = {s: sum(r['status'] == s for r in items) for s in STATUSES}
+        sites = sum(r['call_site_count'] or 0 for r in items)
+        L.append(f"| {lib} | {c['implemented']} | {c['stub']} | {c['missing']} | {len(items)} | {sites} |")
+    L.append('')
+    for lib in GPU_LIBRARIES:
+        items = sorted((r for r in eboot if r['library'] == lib),
+                       key=lambda r: (STATUSES.index(r['status']), -(r['call_site_count'] or 0), r['nid']))
+        if not items:
+            continue
+        L.append(f'## {lib}\n')
+        L.append('| NID | Nome verificado | Status | Função no engine | Biblioteca na HLE | Sítios |')
+        L.append('|---|---|---|---|---|---:|')
+        for r in items:
+            fn = r['function'] or ''
+            if r['stub_reason']:
+                fn += f" ({r['stub_reason']})"
+            L.append(f"| `{r['nid']}` | {r['name'] or ''} | `{r['status']}` | {fn} | "
+                     f"{r.get('hle_library') or ''} | {r['call_site_count'] or 0} |")
+        L.append('')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('\n'.join(L) + '\n', encoding='utf-8')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--engine', type=Path, default=ROOT / 'engine' / 'src')
@@ -472,6 +507,8 @@ def main(argv=None):
     parser.add_argument('--names', type=Path, help='arquivo opcional com nomes de símbolos, um por linha')
     parser.add_argument('--out-dir', type=Path, default=ROOT / 'out')
     parser.add_argument('--imports-md', type=Path, default=ROOT / 'docs' / 'IMPORTS.md')
+    parser.add_argument('--gpu-surface', type=Path, default=ROOT / 'out' / 'gpu_surface.md',
+                        help='tabela da superfície AGC/VideoOut (resumo vai para docs/GPU_NOTES.md à mão)')
     args = parser.parse_args(argv)
     if not args.engine.is_dir():
         parser.error(f'{args.engine} não existe (git submodule update --init --recursive)')
@@ -495,6 +532,7 @@ def main(argv=None):
             tool='nid_db', format_version=1, rows=rows), indent=1) + '\n', encoding='utf-8')
         write_imports_md(args.imports_md, inventory, rows, registrations, definition_count,
                          args.names.name if args.names else None)
+        write_gpu_surface(args.gpu_surface, rows)
         eboot = [r for r in rows if r['importer'] == 'eboot.bin']
         print('eboot.bin: ' + ', '.join(f"{s} {sum(r['status'] == s for r in eboot)}" for s in STATUSES)
               + f' -> {args.imports_md}')

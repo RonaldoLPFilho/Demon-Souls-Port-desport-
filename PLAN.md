@@ -549,7 +549,7 @@ esperados, e se é automático ou exige o Ronaldo.
 | `shader-corpus` | automático, local | 100% do corpus compila e passa `spirv-val` |
 | `charcreate` | manual | criação de personagem visualmente correta |
 | `tutorial-10min` | manual | 10 min no tutorial sem crash |
-| `soak-nexus-2h` | semi-automático | 2 h no Nexus sem crash nem crescimento de memória > limite |
+| `soak-nexus-2h` | semi-automático | 2 h no Nexus sem crash; memória do processo (privada) sem crescimento contínuo: após o aquecimento, inclinação < 50 MB/10 min e pico < 12 GB (limites iniciais, revisar com dados) |
 
 Engine com mudança em `graphics/`: rodar `title` + `shader-corpus` no mínimo.
 Engine com mudança em `kernel/` ou `libs/`: rodar `boot` + `title` + `ctest`.
@@ -623,6 +623,7 @@ reduz o trabalho de rebase. Regras do próprio KytyPS5 que precisam ser seguidas
 | Sem console para referência visual | Bugs gráficos sutis passam | Screenshots/vídeos do Ronaldo no PS5 nos mesmos pontos |
 | Bugs de sincronização intermitentes | Crashes após muitos minutos | `soak.ps1` desde a Fase 4; logs de fences/rótulos |
 | Questões legais | Projeto derrubado | §1.1 sem exceções; nada do jogo no repositório |
+| **Vazamento de memória** (ponto de atenção do Ronaldo: um port comunitário do Demon's Souls chegou a ~30 GB de RAM) | Jogo trava ou derruba o PC em sessões longas; esta máquina tem 32 GB | Toda execução do `run.ps1` grava pico e curva de memória (`memory.csv`) desde a Fase 0; a Fase 2 adiciona ao `log_triage.py` o crescimento por minuto; o `soak.ps1` reprova crescimento contínuo; caches do engine (texturas, buffers, pipelines, memória do jogo mapeada) precisam de limite e liberação, como o bbport fez com texturas/buffers ociosos (README do bbport); cada caso vira entrada em `FIXES.md` com a curva antes/depois |
 | DLSS 5 / geração de quadros podem não ter caminho Vulkan direto (o add-on de terceiros do bbport-windows usa D3D12 e travou nesta máquina) | Requisito do ADR-004 mais caro | Verificar o SDK antes da Fase 7; se preciso, ponte Vulkan↔D3D12 própria com imagens compartilhadas, medida e testada; DLSS SR/geração de quadros nas versões com Vulkan como piso |
 | Interface misturada à cena no quadro do jogo | Artefatos no HUD com geração de quadros | Separar os passes de interface na Fase 4 (M4.6), como o bbport faz com o UI em resolução de saída |
 

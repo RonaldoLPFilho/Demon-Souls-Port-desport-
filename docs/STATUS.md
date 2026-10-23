@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual: 0 — Preparação e linha de base** (PLAN.md §6). Iniciada em 2026-10-23.
+**Fase atual: 1 — Inventário estático** (PLAN.md §6). Fase 0 concluída em 2026-10-23.
 
 ## Fase 0 — progresso
 
@@ -8,10 +8,10 @@
 |---|---|---|---|
 | 1 | Repositório e estrutura | feito (2026-10-23) | `git init` (branch `main`), estrutura da §3, `LICENSE` (texto canônico GPL-2.0, igual ao do bbport, sha256 `edaef632…b233f6`), `.gitignore`, `desport.local.ini.example`, `docs/{STATUS,FIXES,DECISIONS}.md`. |
 | — | ADR-000 (bbport) | feito (2026-10-23) | `docs/DECISIONS.md`. |
-| 2 | Localizar o dump | feito (2026-10-23), região a confirmar | `D:\demon\Demon`: PPSA01341 EUR 01.007.000, texto claro. ADR-001 proposto (EUR em vez de USA). |
+| 2 | Localizar o dump | feito (2026-10-23) | `D:\demon\Demon`: PPSA01341 EUR 01.007.000, texto claro. ADR-001 aceito (EUR em vez de USA). |
 | 3 | Fork do KytyPS5 | feito (2026-10-23) | Submódulo `engine/` → `https://github.com/RonaldoLPFilho/KytyPS5`, branch `desport` a partir de `9dcff95` (ADR-002). Branch publicada no fork em 2026-10-23 (`origin/desport` = `54acdbb`). |
 | 4 | Build | feito com ressalvas (2026-10-23) | Release e RelWithDebInfo compilam. `ctest`: 60/61 no Release, 59/61 no RelWithDebInfo (FIX-001; KP-001, KP-002). O critério "passa no `ctest`" não está cumprido por completo. |
-| 5 | `tools/run.ps1` v1 | feito (2026-10-23) | Testado sem o jogo (simulado, erros, código de saída, tempo limite com encerramento da árvore). Falta a primeira execução real. |
+| 5 | `tools/run.ps1` v1 | feito (2026-10-23) | Testado sem o jogo e usado nas 3 execuções de linha de base. Desde 2026-10-23 grava também a curva de memória (`memory.csv`, PA-001). |
 | 6 | Execuções de linha de base (a/b/c) | feito (2026-10-23) | As 3 param no mesmo `EXIT` do renderer (`descriptors.cpp:969`); zero mensagens de validação. Ver "Linha de base". |
 | 7 | Relatório de linha de base | feito (2026-10-23) | Ver "Relatório de linha de base". |
 
@@ -26,7 +26,7 @@
   `01.007.000`, masterVersion `01.00`. `gameversion.txt`: `+BuildVersion=2025-10-15.877562`.
 - `tools/inspect_self.py`: os 3 executáveis são SELF `4F153D1D` (variante aceita pelo KytyPS5),
   **nenhum segmento criptografado ou comprimido**. SHA-256 no ADR-001.
-- Tamanho total: ainda calculando (≈50 GB).
+- Tamanho total: **83 GB**, 223.273 arquivos.
 - `desport.local.ini` criado com `DES_GAME_DIR=D:\demon\Demon` (ignorado pelo git).
 - **Divergência com o plano:** região EUR (PPSA01341), o plano fixava USA (PPSA01342). ADR-001
   está como proposta até o Ronaldo confirmar.
@@ -120,20 +120,64 @@
   `0x02632cb15eb8128d` foi o último compilado) e se a leitura escalar e a escrita realmente
   colidem ou se a checagem é conservadora demais para este jogo.
 
-## Adiantado da Fase 1 (com OK do Ronaldo em 2026-10-23, enquanto o dump era extraído)
+## Fase 1 — progresso
 
-- `tools/ps5elf.py` (parser SELF/ELF com limites, recusa de criptografia), `tools/inspect_self.py`
-  (→ `out/inventory.json`) e `tools/nid_db.py` (base de NIDs do engine e cobertura dos imports →
-  `out/nid_db.json`, `out/nid_status.json`, `IMPORTS.md`). 27 testes com executáveis e engine
-  sintéticos: `python -m unittest discover -s tests/tools`.
-- Validação contra o dump real: 1157 stubs PLT encontrados = 1157 relocações `JUMP_SLOT`;
-  procparam começa com `ORBI`; tabelas dinâmicas por `DT_*` (endereço virtual), não `DT_OS_*`.
-- **Primeiro número (preliminar):** o eboot importa 1181 símbolos de 47 bibliotecas.
-  `implemented` 665 (56,3%), `stub` 31 (2,6%), `missing` 129 (10,9%), `provided_by_game_module`
-  356 (30,1%) → **160 funções faltando**, 78 delas na `libSceAgc` e 24 na `libSceAgcDriver`.
-  Nenhum dos 129 NIDs `missing` aparece no código do engine; cada um tem no máximo 4 sítios de
-  chamada. O relatório está em `out/IMPORTS.md` até decidir se vai para `docs/` (contém NIDs e
-  endereços derivados do eboot).
+| # | Tarefa | Estado | Evidência / observação |
+|---|---|---|---|
+| 1 | `tools/inspect_self.py` | feito (2026-10-23) | `out/inventory.json`: 3 executáveis, 1395 imports (1296 NIDs), 47.817 exports. Parser em `tools/ps5elf.py`. Validação: 1157 stubs PLT = 1157 `JUMP_SLOT`. |
+| 2 | `tools/nid_db.py` | feito (2026-10-23) | 1788 registros HLE (1736 NIDs), 139 stubs prováveis, 1440 nomes verificados por hash. Regras de stub documentadas no relatório. |
+| 3 | `IMPORTS.md` | gerado e revisado; local a decidir | Hoje em `out/IMPORTS.md` (contém NIDs e endereços do eboot). Ver números abaixo. |
+| 4 | Varredura de instruções | feito (2026-10-23) | Ver abaixo. |
+| 5 | Superfície AGC | feito (2026-10-23) | Resumo em `docs/GPU_NOTES.md`; tabela por função em `out/gpu_surface.md`. |
+| 6 | Testes | feito (2026-10-23) | 27 testes com ELF/SELF e engine sintéticos: `python -m unittest discover -s tests/tools`. |
+
+### Cobertura dos imports (tarefa 3)
+- eboot: 1181 imports de 47 bibliotecas. `implemented` 665 (56,3%), `provided_by_game_module`
+  356 (30,1%: 199 da `libc.prx`, carregada sempre; 157 da `libSceNpCppWebApi.prx`, carregada
+  quando o jogo pede), `missing` 129 (10,9%), `stub` 31 (2,6%).
+- **Funções que faltam: 160** (129 + 31). Por biblioteca: `libSceAgc` 78, `libSceAgcDriver` 24,
+  `libSceNpWebApi2` 10, `libSceNpSessionSignaling` 7, `libSceAjm` 5, `libSceJpegEnc` 4; o resto
+  com 1–3. Os 31 stubs usados pelo eboot são, em geral, inofensivos offline
+  (ex.: `sceNetCtlInit`, `sceShareInitialize`, `sceSaveDataDialogProgressBarSetValue`).
+- Nenhum dos 129 NIDs ausentes aparece em qualquer lugar do código do engine; cada um tem no
+  máximo 4 sítios de chamada. Nenhum foi chamado nas execuções da linha de base.
+- 165 imports resolvem só pelo NID (nome de biblioteca do jogo ≠ da HLE, ex.: `libSceAgc` ×
+  `Graphics5`); 23 NIDs existem em mais de uma biblioteca da HLE.
+- Bate com o log da execução (a): 298 imports ligados a stub = 141 `missing` + 157 da
+  `libSceNpCppWebApi`.
+
+### Varredura de instruções (tarefa 4) — `captures/runs/20261023-160642-instr-scan`
+- Feita com o próprio `guestInstructionPatcher` do KytyPS5 (`--amd-cpu --redzone`, diagnóstico).
+- **Instruções que esta CPU não teria (EXTRQ, INSERTQ, RDPID, CLWB): zero** em todos os módulos.
+  O Zen 5 executa tudo o que o jogo usa; no modo padrão nada é alterado.
+- `VRSQRTPS` (aproximação de 1/√x, resultado varia por fabricante/geração): 1632 no eboot. Com
+  `--amd-cpu` o KytyPS5 troca todas por um cálculo determinístico: 1525 em linha e **107 por trap**
+  (não relocáveis; mais lentas). O plano esperava `trapped = 0`; a diferença é que esse contador
+  é de um patch opcional de fidelidade numérica, não de falta de suporte da CPU. Se o jogo
+  precisa dele (diferenças visuais/física Zen 2 × Zen 5) fica em aberto para a Fase 4.
+- Red zone (relevante só no Windows com `--redzone`): eboot com 130.886 funções, 262 usam red
+  zone, 8126 acessos de memória nelas, 7970 corrigidos, 156 não relocáveis; `libc.prx` 42/86/86;
+  `libSceNpCppWebApi.prx` nenhuma.
+- Memória nessa execução: pico de 3,85 GB privados em 8,7 s (carregamento).
+
+### Critério de saída da Fase 1
+- `docs/IMPORTS.md` gerado e revisado: **gerado e revisado**, falta a decisão de onde fica.
+- Existe um número para "quantas funções faltam": **sim, 160** (eboot).
+- Superfície AGC listada: **sim** (`docs/GPU_NOTES.md`).
+
+## Pontos de atenção
+
+### PA-001 — Vazamento de memória (registrado em 2026-10-23, pedido do Ronaldo)
+- Contexto: um port comunitário do Demon's Souls teve vazamento de RAM chegando a ~30 GB.
+  Esta máquina tem 32 GB; um vazamento desses derruba o jogo ou o PC.
+- Medição: desde 2026-10-23 o `tools/run.ps1` amostra a memória do processo a cada segundo
+  (`memory.csv`: memória privada e working set) e grava os picos em `run.json`. Toda execução
+  tem a curva, então um crescimento aparece cedo, não só no soak.
+- Próximos passos: `log_triage.py` (Fase 2) reporta crescimento por minuto; cenário
+  `soak-nexus-2h` com limite de inclinação e pico (PLAN.md §8.3); caches do engine com limite e
+  liberação (texturas, buffers, pipelines, memória do jogo mapeada). Ver risco em PLAN.md §12.
+- Referência atual: execuções duraram 7–144 s; primeiro pico medido: 3,85 GB privados / 4,49 GB
+  de working set em 8,7 s (carregamento, execução `instr-scan`). Ainda sem dado de crescimento.
 
 ## Problemas conhecidos
 
@@ -185,10 +229,11 @@
   Windows) e 59/61 no RelWithDebInfo (KP-002, intermitente).
 - Jogo executado nas 3 configurações: **sim**.
 - `STATUS.md` diz com evidência até onde ele chega: **sim**.
-- Decisão pendente do Ronaldo: aceitar o fechamento da Fase 0 com KP-001/KP-002 registrados,
-  ou investigá-los antes (precisa do WinDbg).
+- **Fase 0 fechada em 2026-10-23 pelo Ronaldo**, com KP-001 e KP-002 registrados como problemas
+  conhecidos (não bloqueiam a linha de base).
 
 ## Próximo passo concreto
-1. Ronaldo: decidir o fechamento da Fase 0 (acima) e se o `IMPORTS.md` pode ir para `docs/`.
-2. Agente: terminar a Fase 1 (já adiantada): revisar `IMPORTS.md`, varredura de instruções
-   (tarefa 4), superfície AGC em `docs/GPU_NOTES.md` (tarefa 5).
+1. Ronaldo: decidir se as tabelas por função (`IMPORTS.md`, `gpu_surface.md`, com NIDs e
+   endereços do eboot) podem ir para `docs/` ou ficam só em `out/`. Com isso a Fase 1 fecha.
+2. Agente: Fase 2 (camada `game/`, rastreamento de chamadas, marcos no log, `log_triage.py`,
+   `run.ps1` v2, `check.ps1`) e o portão de decisão (ADR-003).

@@ -11,7 +11,8 @@
       log.txt     log do KytyPS5 (--printf-direction File; sem isso o KytyPS5 não loga nada)
       stdout.txt  saída padrão do processo (mensagens antes do log iniciar)
       stderr.txt  erro padrão do processo
-      run.json    comando exato, commits do engine e do desport, tempos e resultado
+      run.json    comando exato, commits do engine e do desport, tempos, resultado e picos de memória
+      memory.csv  memória privada e working set do processo a cada segundo
 
     Nada é escrito fora de captures/. A pasta do dump só é lida.
 
@@ -190,7 +191,31 @@ $proc = Start-Process -FilePath $KytyExe -ArgumentList $argString -WorkingDirect
     -RedirectStandardError (Join-Path $RunDir 'stderr.txt') -PassThru
 [void]$proc.Handle  # no PowerShell 5.1, sem isso ExitCode fica vazio depois do término
 
-if ($proc.WaitForExit($TimeoutSec * 1000)) {
+# Memória a cada segundo (PA-001 em docs/STATUS.md): privada e working set do processo principal.
+$memFile = Join-Path $RunDir 'memory.csv'
+$memLines = New-Object System.Collections.Generic.List[string]
+$memLines.Add('t_sec,private_mb,working_set_mb')
+$peakPrivate = 0.0; $peakWorkingSet = 0.0
+$exited = $false
+$deadline = $TimeoutSec * 1000
+while (-not $exited -and $timer.ElapsedMilliseconds -lt $deadline) {
+    try {
+        $proc.Refresh()
+        $private = [math]::Round($proc.PrivateMemorySize64 / 1MB, 1)
+        $working = [math]::Round($proc.WorkingSet64 / 1MB, 1)
+        $peakPrivate = [math]::Max($peakPrivate, $private)
+        $peakWorkingSet = [math]::Max($peakWorkingSet, $working)
+        $memLines.Add([string]::Format([cultureinfo]::InvariantCulture, '{0},{1},{2}',
+                [math]::Round($timer.Elapsed.TotalSeconds, 1), $private, $working))
+    } catch { }
+    $wait = [math]::Min(1000, [math]::Max(1, $deadline - $timer.ElapsedMilliseconds))
+    $exited = $proc.WaitForExit([int]$wait)
+}
+[IO.File]::WriteAllLines($memFile, $memLines)
+$run.memory = [ordered]@{ peak_private_mb = $peakPrivate; peak_working_set_mb = $peakWorkingSet;
+    samples = $memLines.Count - 1; file = 'memory.csv'; scope = 'processo principal' }
+
+if ($exited) {
     $proc.WaitForExit()
     $run.result = if ($proc.ExitCode -eq 0) { 'exited' } else { 'crashed_or_error' }
     $run.exit_code = $proc.ExitCode
@@ -207,6 +232,7 @@ Save-Run
 
 Write-Host ''
 Write-Host "Resultado: $($run.result)  código: $($run.exit_code)  duração: $($run.duration_sec) s"
+Write-Host "Memória: pico privada $($run.memory.peak_private_mb) MB, pico working set $($run.memory.peak_working_set_mb) MB"
 Write-Host "Pasta: $RunDir"
 if (Test-Path -LiteralPath $logFile) {
     Write-Host '--- últimas 20 linhas do log ---'
