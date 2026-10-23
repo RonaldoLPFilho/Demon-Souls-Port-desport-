@@ -522,8 +522,14 @@ Tarefas:
      redistribuição das DLLs da NVIDIA (componentes separados, nunca no git).
    - Critério: DLSS SR, DLAA e geração de quadros funcionando no 1-1 e no Nexus, sem artefatos
      graves de HUD ou de objetos em movimento, com FPS e latência medidos com e sem cada opção.
-4. Desbloqueio de FPS acima de 60 via patch, verificando lógica de jogo amarrada a frame.
-5. Launcher e empacotamento Windows (referência: `D:\games\bbport-windows`), com checagem
+4. **Remoção do limite de FPS (pedido do Ronaldo, 2026-10-23):** sem teto fixo (ilimitado ou até
+   a taxa do monitor, configurável no ini), via patch, verificando lógica de jogo amarrada a frame
+   (física, animação, timers, input) e a compatibilidade com a geração de quadros e o Reflex.
+5. **Suporte a 3440x1440 / 21:9 (pedido do Ronaldo, 2026-10-23):** resolução de saída e de render
+   ultrawide, com campo de visão correto (sem esticar nem cortar), HUD e menus ancorados ou
+   centralizados em 16:9, cutscenes com pillarbox se quebrarem fora de 16:9. Exige achar a
+   projeção e o layout da interface no jogo (Fase 4 já separa cena e interface, M4.6).
+6. Launcher e empacotamento Windows (referência: `D:\games\bbport-windows`), com checagem
    de versão do jogo, CPU e GPU na abertura, como o bbport faz.
 
 ---
