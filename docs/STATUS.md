@@ -189,6 +189,19 @@
   contra 3,8–5,4 s nas execuções antigas no HD. A investigar na Fase 4 (desempenho de E/S).
 - Memória: 5,2 GB privados, 108 MB/min nos primeiros 4 min (inclui carregamento; PA-001).
 
+### Contadores por quadro — `captures/runs/20261023-193727-sessao-contadores` (`-Stats`)
+| | Menu (60 fps) | Jogo parado (5 fps) |
+|---|---:|---:|
+| draws + dispatches | 212 | 8.824 |
+| `srt_materialize` (avaliação da tabela de recursos por draw) | 247, 4,7 ms | **13.755, 88 ms** (6,4 µs cada) |
+| `readback` (leitura síncrona de buffer escrito pela GPU) | 17, 4,7 ms | **290, 80 ms** |
+| esperas pela GPU | 18 (3,9 ms) | 302 (49 ms) |
+| envios de fila | 65 | 365 |
+| faults de memória rastreada | 1.401 | 3.080 |
+| upload de buffers / texturas | 5,5 MB / 58 MB | 11 MB / 18 MB |
+- As duas frentes somam ~170 de ~200 ms por quadro. Leituras concentradas em poucas regiões de
+  64 KiB (a pior: `0x20ed70000`, 8.843 leituras, 4,75 s na sessão).
+
 ### Diagnóstico do fps baixo — `captures/runs/20261023-192359-sessao-amostragem`
 - Amostragem com `tools/sampler` (build RelWithDebInfo, personagem parado, 4,8 fps no `DES_FPS`;
   GPU em ~20% e CPU fria, relato do Ronaldo). Relatórios: `samples-base.md`, `samples-boost.json`.
