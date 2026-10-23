@@ -1,6 +1,6 @@
 {
   "_source": "run-windows.ps1 -DryRun do ceremony88 v1.3 (build/fg), 2026-10-23",
-  "kyty_exe": "build/fg/_Build/windows/kyty_emulator.exe",
+  "kyty_exe": "build/fg-port/_Build/windows/kyty_emulator.exe",
   "work_dir": "user/kyty-fg",
   "environment": {
     "KYTY_SHADER_WARMUP": "1",
