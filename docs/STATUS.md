@@ -167,6 +167,37 @@
 - Superfície AGC listada: **sim** (`docs/GPU_NOTES.md`, `docs/GPU_SURFACE.md`).
 - **Fase 1 fechada em 2026-10-23.**
 
+## Fase 3 — progresso
+
+### Bissecção do bloqueio (ADR-003) — em andamento
+- Worktree `build/bisect` (fora do git do desport), builds do próprio upstream com `NOMINMAX`
+  (alguns commits do intervalo não compilam no Windows pela macro `max`).
+- Critério: ruim = checagem `scalar resource reads ...` dispara; bom = passa do 115º pipeline de
+  compute sem disparar (nas execuções ruins a parada vem no 110º); senão, indeterminado. A primeira
+  rodada usou um critério frouxo (só "não disparou em 60 s") e apontou `63ca9c0b`; **descartada**,
+  porque três commits "bons" nunca chegaram ao ponto do bloqueio.
+- Bons confirmados: `22ff469` (28/09, 131 pipelines), `cb375ec` (135 pipelines, 16 PS),
+  **`584c2e8` (16/10, 167 pipelines, 55 PS)**. Ruim: `9dcff95` (23/10).
+- **Com `584c2e8` o jogo chega à tela de seleção de idioma (56 fps) e o Ronaldo navegou até a
+  criação de personagem**, sem erro, até o tempo limite de 180 s
+  (`captures/screenshots/20261023-584c2e8-language-select.png`). É o ponto mais avançado até agora
+  nesta máquina e confirma a regressão do upstream entre 16/10 e 23/10.
+- Bissecção pausada para a sessão livre do Ronaldo; estado salvo em `build/bisect-saved.log`:
+  bom `584c2e8`, **ruim `0caf4a6`** → culpado entre 81 commits.
+
+### Sessão livre do Ronaldo — `captures/runs/20261023-172446-sessao-livre-584c2e8`
+- Build upstream `584c2e8` (sem a camada desport, então sem marcos nem `calls.json`), dump no HD.
+- 15,5 min, terminou limpa (o Ronaldo fechou). O jogo abriu e respondeu, mas a **0–3 fps**: mesmo
+  sintoma da issue upstream #890. Causa principal provável: compilação contínua de shaders
+  (187 VS, 343 PS, 703 CS) com o cache de pipelines vazio a cada execução (o KytyPS5 grava o cache
+  na pasta de trabalho, que era a pasta da execução). Corrigido: o `run.ps1` agora roda em
+  `user/kyty/` (persistente); o cache da sessão (76 MB) foi copiado para lá.
+- **Saves funcionam:** `SAVEDATA0OptionsProfile0` e `SAVEDATA0PlayerProfile0` gravados; copiados
+  para `user/kyty/_SaveData`.
+- 14 imports ausentes chamados de fato, todos da `libSceNpCppWebApi` (API web da PSN), chamados
+  antes de o módulo carregar; retornam 0 no stub. Provavelmente inofensivo offline.
+- Memória: ver PA-001.
+
 ## Fase 2 — progresso
 
 | # | Tarefa | Estado | Evidência / observação |
@@ -197,7 +228,18 @@
   `soak-nexus-2h` com limite de inclinação e pico (PLAN.md §8.3); caches do engine com limite e
   liberação (texturas, buffers, pipelines, memória do jogo mapeada). Ver risco em PLAN.md §12.
 - Referência atual: execuções duraram 7–144 s; primeiro pico medido: 3,85 GB privados / 4,49 GB
-  de working set em 8,7 s (carregamento, execução `instr-scan`). Ainda sem dado de crescimento.
+  de working set em 8,7 s (carregamento, execução `instr-scan`).
+- **Primeiro sinal (2026-10-23, build upstream `584c2e8`, execução `20261023-171535-bisect2-584c2e8c`):**
+  com o Ronaldo navegando do menu de idioma até a criação de personagem, a memória privada chegou a
+  **8,4 GB em 180 s**, crescendo **~1,4 GB/min** após o aquecimento (alerta do `log_triage.py`).
+  Ainda indistinguível de carregamento legítimo (167 pipelines de compute e 55 shaders de pixel
+  compilados no período).
+- **Sessão livre de 15,5 min (mesmo build):** 2,2 GB na inicialização; **estável em ~5,1 GB por
+  4 min no menu** (sem crescimento em repouso); saltos para 13,4 GB em carregamentos; depois
+  **subida lenta de 13,5 para 15,5 GB em ~6 min (~300 MB/min)**, ainda com shaders sendo
+  compilados. Pico 15,6 GB privados. Próximo passo: repetir com o cache de pipelines aquecido e
+  dump no SSD, parado num ponto fixo; se a subida continuar sem compilação, é vazamento.
+- O `memory.csv` agora é gravado a cada amostra (antes só no fim).
 
 ## Problemas conhecidos
 

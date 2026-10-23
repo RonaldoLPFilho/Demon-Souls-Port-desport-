@@ -11,6 +11,8 @@
       log.txt     log do KytyPS5 (--printf-direction File; sem isso o KytyPS5 não loga nada)
       stdout.txt  saída padrão do processo (mensagens antes do log iniciar)
       stderr.txt  erro padrão do processo
+    O processo roda em user/kyty/ (persistente, fora do git): cache de pipelines, saves e dados
+    temporários do KytyPS5 sobrevivem entre execuções.
       run.json    comando exato, commits do engine e do desport, tempos, resultado e picos de memória
       memory.csv  memória privada e working set do processo a cada segundo
       calls.json  chamadas por import (com -Trace ou cenário com trace = true; DES_TRACE=1)
@@ -231,7 +233,13 @@ if ($Trace) {
     $env:DES_TRACE_FILE = Join-Path $RunDir 'calls.json'
 }
 $timer = [Diagnostics.Stopwatch]::StartNew()
-$proc = Start-Process -FilePath $KytyExe -ArgumentList $argString -WorkingDirectory $RunDir `
+# Pasta de trabalho persistente: o KytyPS5 grava ali _PipelineCache, _DownloadData, _TempData e
+# saves, relativos ao diretório atual. Log, dumps e calls.json vão para $RunDir por caminho absoluto.
+$WorkDir = Join-Path $Root 'user/kyty'
+New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+$run.work_dir = $WorkDir
+Save-Run
+$proc = Start-Process -FilePath $KytyExe -ArgumentList $argString -WorkingDirectory $WorkDir `
     -RedirectStandardOutput (Join-Path $RunDir 'stdout.txt') `
     -RedirectStandardError (Join-Path $RunDir 'stderr.txt') -PassThru
 [void]$proc.Handle  # no PowerShell 5.1, sem isso ExitCode fica vazio depois do término
@@ -239,8 +247,8 @@ Remove-Item Env:DES_TRACE, Env:DES_TRACE_FILE -ErrorAction SilentlyContinue
 
 # Memória a cada segundo (PA-001 em docs/STATUS.md): privada e working set do processo principal.
 $memFile = Join-Path $RunDir 'memory.csv'
-$memLines = New-Object System.Collections.Generic.List[string]
-$memLines.Add('t_sec,private_mb,working_set_mb')
+[IO.File]::WriteAllText($memFile, "t_sec,private_mb,working_set_mb`n")
+$memSamples = 0
 $peakPrivate = 0.0; $peakWorkingSet = 0.0
 $exited = $false
 $deadline = $TimeoutSec * 1000
@@ -251,15 +259,16 @@ while (-not $exited -and $timer.ElapsedMilliseconds -lt $deadline) {
         $working = [math]::Round($proc.WorkingSet64 / 1MB, 1)
         $peakPrivate = [math]::Max($peakPrivate, $private)
         $peakWorkingSet = [math]::Max($peakWorkingSet, $working)
-        $memLines.Add([string]::Format([cultureinfo]::InvariantCulture, '{0},{1},{2}',
+        # Uma linha por amostra, já no arquivo: uma sessão longa interrompida não perde a curva.
+        [IO.File]::AppendAllText($memFile, [string]::Format([cultureinfo]::InvariantCulture, "{0},{1},{2}`n",
                 [math]::Round($timer.Elapsed.TotalSeconds, 1), $private, $working))
+        $memSamples++
     } catch { }
     $wait = [math]::Min(1000, [math]::Max(1, $deadline - $timer.ElapsedMilliseconds))
     $exited = $proc.WaitForExit([int]$wait)
 }
-[IO.File]::WriteAllLines($memFile, $memLines)
 $run.memory = [ordered]@{ peak_private_mb = $peakPrivate; peak_working_set_mb = $peakWorkingSet;
-    samples = $memLines.Count - 1; file = 'memory.csv'; scope = 'processo principal' }
+    samples = $memSamples; file = 'memory.csv'; scope = 'processo principal' }
 
 if ($exited) {
     $proc.WaitForExit()
