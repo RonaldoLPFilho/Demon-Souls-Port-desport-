@@ -189,6 +189,21 @@
   contra 3,8–5,4 s nas execuções antigas no HD. A investigar na Fase 4 (desempenho de E/S).
 - Memória: 5,2 GB privados, 108 MB/min nos primeiros 4 min (inclui carregamento; PA-001).
 
+### Diagnóstico do fps baixo — `captures/runs/20261023-192359-sessao-amostragem`
+- Amostragem com `tools/sampler` (build RelWithDebInfo, personagem parado, 4,8 fps no `DES_FPS`;
+  GPU em ~20% e CPU fria, relato do Ronaldo). Relatórios: `samples-base.md`, `samples-boost.json`.
+- **13 workers `BPE JobWorkerThread CPU0..12`** (um por núcleo de jogo do PS5, máscara de 1 núcleo,
+  prioridade 700 → normal no Windows) giram ociosos a ~95% cada: laço `pause` + `rdtsc`
+  (`eboot+0x83b6fd..0x83b85f`). O engine guarda a afinidade mas não aplica. **Não é o gargalo.**
+- **Gargalo: a thread de comandos de GPU do engine (uma só, em série), ocupada 100% do tempo:**
+  ~72% CPU + ~23% esperando a GPU. Inclusivo: ~30% avaliando tabelas de recursos dos shaders a cada
+  draw (`ShaderRecompiler::IR::SrtWalker`), ~20% em leituras síncronas de buffers escritos pela GPU
+  (`BufferCache::ReadMemory` → `DownloadBufferMemory` → `CommandScheduler::Wait`), ~19% em
+  `CommitBindings`/`ExecutePreparedDraw`. Nenhuma recompilação nova no trecho.
+- **Teste A/B ao vivo:** prioridade máxima (+2) na thread de GPU → 4,8 → 4,9 fps. Prioridade descartada.
+- Ordem de ataque (Fase 4, item 0): (1) cache no `SrtWalker`; (2) entender e reduzir as leituras
+  síncronas; (3) pré-compilação de shaders; (4) Fase 7: comandos de GPU em mais de uma thread.
+
 ### Sessão de medição do Ronaldo — `captures/runs/20261023-183343-sessao-medicao`
 - Build desport (`01d7965`), SSD, cache de pipelines aquecido; 15 min, saída limpa (código 0).
 - Relato: abertura, menu, "iniciar" e cutscene inicial rápidos e responsivos. Depois de
