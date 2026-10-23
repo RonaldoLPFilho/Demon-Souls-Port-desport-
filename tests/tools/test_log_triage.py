@@ -1,0 +1,128 @@
+# SPDX-License-Identifier: GPL-2.0-only
+"""Testes do tools/log_triage.py com uma execução sintética."""
+import io
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / 'tools'))
+import log_triage  # noqa: E402
+
+LOG = """Initialized: Config
+Title ID: PPSA00000
+DES_MILESTONE process_started t=12 title=PPSA00000
+Loading: D:/game\\eboot.bin
+base_vaddr             = 0x0000000900000000
+base_size              = 0x0000000000100000
+mapped_size            = 0x0000000000200000
+Loading: D:/game\\sce_module/libc.prx
+base_vaddr             = 0x0000000910000000
+mapped_size            = 0x0000000000010000
+Relocate: unresolved PLT import patched to stub [1] [0] <- 0, AAAA[x][y][Func], Func, Global, eboot
+Relocate: unresolved PLT import patched to stub [2] [0] <- 0, BBBB[x][y][Func], Func, Global, eboot
+DES_MILESTONE modules_loaded t=300 programs=2
+DES_MILESTONE game_entry t=310
+Unresolved import stub called [0]: patch_vaddr=0x1 jmprela_index=1 symbol=AAAA[x_v1][y_v1.1][Func] type=Func bind=Global program=eboot
+Unresolved import stub called [1]: patch_vaddr=0x1 jmprela_index=1 symbol=AAAA[x_v1][y_v1.1][Func] type=Func bind=Global program=eboot
+[Vulkan][E][123]: Validation Error: [ VUID-x ] Object 0x1234 bad
+[Vulkan][E][123]: Validation Error: [ VUID-x ] Object 0x5678 bad
+[Vulkan][W][9]: something slow
+warning: ignoring indirect uc reg GE_STEREO_CNTL at 0x25f, value = 0x00000000
+warning: ignoring indirect uc reg GE_STEREO_CNTL at 0x25f, value = 0x00000001
+\t warning: indented parameter lines are ignored
+DES_MILESTONE flip_1 t=900 source=gpu
+Unhandled host exception: type=1 code=5 pc=0x0000000900001234 access=1 address=0x0000000000000010
+--- Build ---
+Source build test
+--- Error ---
+something bad happened
+ in D:\\engine\\src\\x.cpp:42
+"""
+
+
+def make_run(root, growth=True):
+    run = Path(root) / 'run'
+    run.mkdir()
+    (run / 'log.txt').write_text(LOG, encoding='utf-8')
+    (run / 'run.json').write_text(json.dumps(dict(run_id='run', result='crashed_or_error', exit_code=321,
+                                                  duration_sec=100.0, flags=['--x'])), encoding='utf-8-sig')
+    rows = ['t_sec,private_mb,working_set_mb']
+    for t in range(0, 101):
+        mem = 1000 + (t * 1.0 if growth else 0) + (500 if t < 20 else 0)
+        rows.append(f'{t},{mem},{mem + 100}')
+    (run / 'memory.csv').write_text('\n'.join(rows) + '\n', encoding='utf-8')
+    (run / 'calls.json').write_text(json.dumps(dict(elapsed_ms=5000, entries=[
+        dict(nid='N1', function='F1', count=10, first_ms=100),
+        dict(nid='N2', function='F2', count=0, first_ms=None),
+        dict(nid='N3', function='F3', count=3, first_ms=50)])), encoding='utf-8')
+    return run
+
+
+class TriageTests(unittest.TestCase):
+    def test_full_report(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            report, run_dir = log_triage.triage(run)
+            self.assertEqual([m['name'] for m in report['milestones']],
+                             ['process_started', 'modules_loaded', 'game_entry', 'flip_1'])
+            self.assertEqual(report['error'], dict(message='something bad happened', where='D:\\engine\\src\\x.cpp:42'))
+            self.assertEqual(report['host_exception']['where'], 'eboot.bin+0x1234')
+            self.assertEqual(report['stubbed_at_link'], 2)
+            self.assertEqual(report['stub_calls'], {'AAAA[x_v1][y_v1.1][Func]': 2})
+            self.assertEqual(sum(report['vulkan'].values()), 3)
+            self.assertEqual(len([k for k in report['vulkan'] if k[0] == 'E']), 1)  # agrupadas
+            self.assertEqual(list(report['warnings'].values()), [2])
+            mem = report['memory']
+            self.assertAlmostEqual(mem['growth_mb_per_min'], 60.0, places=3)
+            self.assertTrue(mem['alert'])
+            self.assertEqual(mem['peak_private_mb'], 1519.0)
+            calls = report['calls']
+            self.assertEqual((calls['called'], calls['imports'], calls['total_calls']), (2, 3, 13))
+            self.assertEqual(calls['first'][0]['nid'], 'N3')
+            text = log_triage.render(report)
+            self.assertIn('Último marco: **flip_1**', text)
+            self.assertIn('**ALERTA**', text)
+
+    def test_flat_memory_has_no_alert(self):
+        with tempfile.TemporaryDirectory() as root:
+            report, _ = log_triage.triage(make_run(root, growth=False))
+            self.assertAlmostEqual(report['memory']['growth_mb_per_min'], 0.0, places=6)
+            self.assertFalse(report['memory']['alert'])
+
+    def test_cli_writes_triage_md(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(log_triage.main([str(run)]), 0)
+            self.assertTrue((run / 'triage.md').exists())
+
+    def test_scenario_evaluation(self):
+        with tempfile.TemporaryDirectory() as root:
+            report, _ = log_triage.triage(make_run(root))
+            ok = dict(expect_milestones=['game_entry'], allow_engine_stop=True)
+            self.assertEqual(log_triage.evaluate(dict(report, host_exception=None), ok), [])
+            strict = dict(expect_milestones=['flip_1', 'flip_60'], deadline_ms=500,
+                          allow_engine_stop=False, max_vulkan_errors=0, max_growth_mb_per_min=10)
+            failures = log_triage.evaluate(report, strict)
+            joined = '\n'.join(failures)
+            for expected in ('marco ausente: flip_60', 'flip_1 em 900 ms', 'parada do engine',
+                             'exceção do host', 'erros de validação', 'memória cresce'):
+                self.assertIn(expected, joined)
+
+    def test_real_scenarios_file_parses(self):
+        boot = log_triage.load_scenario('boot')
+        self.assertIn('flip_1', boot['expect_milestones'])
+        with self.assertRaises(KeyError):
+            log_triage.load_scenario('nao-existe')
+
+    def test_missing_log(self):
+        with tempfile.TemporaryDirectory() as root:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(log_triage.main([str(Path(root) / 'nope.txt'), '--no-write']), 1)
+
+
+if __name__ == '__main__':
+    unittest.main()

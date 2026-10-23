@@ -166,6 +166,24 @@
 - Superfície AGC listada: **sim** (`docs/GPU_NOTES.md`, `docs/GPU_SURFACE.md`).
 - **Fase 1 fechada em 2026-10-23.**
 
+## Fase 2 — progresso
+
+| # | Tarefa | Estado | Evidência / observação |
+|---|---|---|---|
+| 1 | Camada `game/` | feito (2026-10-23) | `game/hooks/gameHooks.cpp` (override de HLE por NID, consultado antes da HLE; nenhum override ainda), `game/config/des.toml` (flags padrão, vazio), `game/patches/README.md` (formato do `GamePatch`). ADR-006. |
+| 2 | Rastreamento `DES_TRACE=1` | feito (2026-10-23) | `calls.json` por execução. Cenário `boot`: 347 dos 1366 imports chamados, 17,4 milhões de chamadas em 4,9 s; os mais chamados são `memcpy`, `strlen`, `strcmp`, `memset` (libc.prx nativa). Custo: 7,5 s até a parada, igual a sem rastreamento. |
+| 3 | Marcos `DES_MILESTONE` | feito (2026-10-23) | `process_started` 0,8 s, `modules_loaded` 1,0 s, `game_entry` 1,0 s, `first_data_file` 1,3 s (`/app0/playgo-chunkdefs.xml`), **`flip_1` 2,8 s (CPU)**. |
+| 4 | `tools/log_triage.py` | feito (2026-10-23) | Marcos, parada/exceção (módulo+offset), imports ausentes chamados, validação Vulkan agrupada, avisos repetidos, memória (crescimento por minuto, PA-001), `calls.json`, veredito de cenário. |
+| 5 | `tools/run.ps1` v2 | feito (2026-10-23) | `-Scenario`, `-Trace`, flags de `game/config/des.toml`, triagem automática, veredito em `run.json`. |
+| 6 | `tools/check.ps1` | feito (2026-10-23) | Testes das ferramentas, build, `ctest` (KP-001 à parte), cenário `boot` (falha esperada pelo bloqueio da linha de base). |
+
+- Cenários em `tests/regression/scenarios.toml`: `boot` (ativo), `title`, `shader-corpus`,
+  `charcreate`, `tutorial-10min`, `soak-nexus-2h` (desativados até haver infraestrutura) e as três
+  reproduções da linha de base.
+- 33 testes das ferramentas passam. `ctest`: 60/61 (KP-001), igual a antes das mudanças.
+- **Observação:** o primeiro flip (M3.2) é atingido em 2,8 s; o cenário `boot` só falha pela
+  parada do renderer logo depois (`descriptors.cpp:969`).
+
 ## Pontos de atenção
 
 ### PA-001 — Vazamento de memória (registrado em 2026-10-23, pedido do Ronaldo)
@@ -234,7 +252,6 @@
   conhecidos (não bloqueiam a linha de base).
 
 ## Próximo passo concreto
-Fase 2 (PLAN.md §6): camada `game/` com override de HLE por jogo no `runtimeLinker.cpp`,
-rastreamento de chamadas (`DES_TRACE=1` → `calls.json`), marcos no log (`DES_MILESTONE`),
-`tools/log_triage.py` (incluindo crescimento de memória, PA-001), `run.ps1` v2 com cenários,
-`tools/check.ps1`, e o portão de decisão (ADR-003) com o Ronaldo.
+1. Agente: commit do engine (branch `desport`) e do desport.
+2. Portão de decisão da Fase 2 (ADR-003): estimativa das Fases 3 e 4 e confirmação da
+   estratégia "fork primeiro, port depois", com o Ronaldo.

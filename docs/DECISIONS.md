@@ -254,3 +254,39 @@ dumps de command buffers, shaders, capturas e qualquer byte do executável ou do
 **Consequências.** A exceção vale só para tabelas de metadados de API (NID, nome verificado,
 biblioteca, status no engine, contagem e primeiros endereços de chamada). Novos relatórios
 gerados que contenham mais do que isso precisam de decisão própria.
+
+---
+
+## ADR-006 — Camada desport no engine: marcos, rastreamento e hooks do jogo (2026-10-23)
+
+**Status:** aceito.
+
+**Contexto.** A Fase 2 pede um ponto de extensão para overrides de HLE por jogo, um rastreamento
+de chamadas que alimente a Fase 6 e marcos automáticos no log, com mudança mínima no engine.
+
+**Decisão.**
+- Código novo e nosso em `engine/src/loader/desport.{h,cpp}` (já compilado pelo glob do CMake) e
+  `engine/src/desport/gameHooksDefault.cpp`; no código do KytyPS5, só chamadas de uma linha
+  marcadas `// desport:` (33 linhas em 6 arquivos, mais 9 no `CMakeLists.txt`).
+- **Hooks do jogo:** `game/hooks/*.cpp` (repositório desport) é compilado no engine quando
+  `DESPORT_GAME_DIR` (padrão `../game`) tem a pasta `hooks`; senão entra o arquivo vazio padrão.
+  `RuntimeLinker::Resolve` consulta `Desport::FindGameHook` (por NID e tipo) **antes** da HLE e
+  dos módulos nativos. Os hooks só se registram se o `TITLE_ID` for `PPSA01341`.
+- **Marcos:** `DES_MILESTONE <nome> t=<ms> [detalhe]` no console e no log, uma vez por nome:
+  `process_started`, `modules_loaded`, `game_entry`, `first_data_file`, `flip_1/60/600/3600`
+  (no ponto comum aos flips da CPU e da GPU, `ReserveFlipRequest`) e `first_savedata_mount`
+  (`FileSystem::Mount` de `/savedata*`; não em `libSaveData.cpp`, que um teste inclui como fonte).
+- **Rastreamento (`DES_TRACE=1`):** cada slot PLT de função recebe um thunk de 16 bytes
+  `inc qword [rip+contador]; jmp qword [rip+alvo]`, que não toca em registradores. Os contadores
+  ficam em linhas de 64 bytes, em páginas separadas do código. O incremento é sem `lock`: sob
+  disputa a contagem é um limite inferior, enquanto presença e primeiro uso (amostrado a cada
+  50 ms) são exatos. Medido no cenário `boot`: com `lock inc` e contadores de 16 bytes a mesma
+  parada levou 31,5 s (contra 7–12 s sem rastreamento); com a versão final, 7,5 s. O arquivo
+  (`DES_TRACE_FILE`, padrão `calls.json`) é regravado a cada segundo, porque as paradas do engine
+  saem com `std::_Exit`, e no fim em saídas normais. `UnloadProgram` desembrulha o thunk para
+  achar o módulo real do slot.
+
+**Consequências.** O rebase sobre o upstream toca 7 arquivos com linhas marcadas. O `calls.json`
+de uma partida completa vira a lista do runtime mínimo da Fase 6. Só slots PLT são contados:
+ponteiros de função obtidos por `GLOB_DAT` (que podem ser comparados por identidade) ficam como
+estão.

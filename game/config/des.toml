@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Flags padrão do kyty_emulator para o Demon's Souls (PPSA01341, ADR-001), aplicadas por
+# tools/run.ps1 antes das flags do cenário e da linha de comando.
+#
+# Só entra aqui o que tiver evidência de ser necessário (entrada em docs/FIXES.md). Candidatas
+# conhecidas, ainda sem evidência: --skip-notice-screen, --playgo-hack (só diagnóstico), --amd-cpu
+# (fidelidade de VRSQRTPS; ver docs/STATUS.md, varredura de instruções).
+flags = []

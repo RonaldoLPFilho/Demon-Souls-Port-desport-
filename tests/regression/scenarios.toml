@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Suíte de regressão (PLAN.md §8.3). Usada por `tools/run.ps1 -Scenario <nome>` e
+# `tools/log_triage.py --scenario <nome>`.
+#
+# Campos:
+#   type              "auto" (roda sozinho), "manual" (exige o Ronaldo jogando) ou "semi"
+#   enabled           false enquanto o cenário não pode passar por falta de infraestrutura
+#   flags             flags extras do kyty_emulator
+#   timeout_sec       tempo limite da execução
+#   trace             liga DES_TRACE=1 (calls.json)
+#   expect_milestones marcos DES_MILESTONE que precisam aparecer
+#   deadline_ms       tempo máximo (desde o início do processo) para o último marco esperado
+#   allow_engine_stop true se uma parada do engine (EXIT) não reprova o cenário
+#   max_vulkan_errors limite de mensagens de validação de severidade E
+#   max_growth_mb_per_min  limite de crescimento de memória privada após o aquecimento (PA-001)
+
+[boot]
+type = "auto"
+enabled = true
+description = "Atinge o primeiro flip (M3.2) em menos de 120 s, sem parada nem crash."
+flags = []
+timeout_sec = 150
+trace = true
+expect_milestones = ["process_started", "modules_loaded", "game_entry", "flip_1"]
+deadline_ms = 120000
+allow_engine_stop = false
+max_growth_mb_per_min = 50
+
+[title]
+type = "auto"
+enabled = false   # falta o marco de tela de título (Fase 3)
+description = "Chega à tela de título com zero erros de validação Vulkan."
+flags = ["--vulkan-validation", "--shader-validation"]
+timeout_sec = 300
+trace = false
+expect_milestones = ["flip_600"]
+allow_engine_stop = false
+max_vulkan_errors = 0
+
+[shader-corpus]
+type = "auto"
+enabled = false   # tools/shader_corpus.py é da Fase 4
+description = "100% do corpus de shaders compila e passa no spirv-val (só local)."
+
+[charcreate]
+type = "manual"
+enabled = false
+description = "Criação de personagem visualmente correta."
+
+[tutorial-10min]
+type = "manual"
+enabled = false
+description = "10 min no tutorial sem crash."
+timeout_sec = 900
+
+[soak-nexus-2h]
+type = "semi"
+enabled = false
+description = "2 h no Nexus sem crash; memória sem crescimento contínuo (PA-001)."
+timeout_sec = 7500
+max_growth_mb_per_min = 5
+
+# Reproduções da linha de base da Fase 0 (docs/STATUS.md).
+[baseline-default]
+type = "auto"
+enabled = true
+description = "Linha de base (a): flags padrão."
+flags = []
+timeout_sec = 180
+trace = true
+expect_milestones = ["process_started"]
+allow_engine_stop = true
+
+[baseline-validation]
+type = "auto"
+enabled = true
+description = "Linha de base (b): validação Vulkan e de shaders."
+flags = ["--vulkan-validation", "--shader-validation"]
+timeout_sec = 300
+trace = false
+expect_milestones = ["process_started"]
+allow_engine_stop = true
+max_vulkan_errors = 0
+
+[baseline-cbdump]
+type = "auto"
+enabled = true
+description = "Linha de base (c): dump de command buffers."
+flags = ["--command-buffer-dump"]
+timeout_sec = 300
+trace = false
+expect_milestones = ["process_started"]
+allow_engine_stop = true

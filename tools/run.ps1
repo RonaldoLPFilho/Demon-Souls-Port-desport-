@@ -1,7 +1,7 @@
 ﻿# SPDX-License-Identifier: GPL-2.0-only
 <#
 .SYNOPSIS
-    Executa o KytyPS5 com o Demon's Souls e guarda tudo da execução (PLAN.md §6 Fase 0, tarefa 5).
+    Executa o KytyPS5 com o Demon's Souls e guarda tudo da execução (PLAN.md §6 Fases 0 e 2).
 
 .DESCRIPTION
     Lê DES_GAME_DIR (e opcionalmente KYTY_EXE) de desport.local.ini, executa
@@ -13,6 +13,8 @@
       stderr.txt  erro padrão do processo
       run.json    comando exato, commits do engine e do desport, tempos, resultado e picos de memória
       memory.csv  memória privada e working set do processo a cada segundo
+      calls.json  chamadas por import (com -Trace ou cenário com trace = true; DES_TRACE=1)
+      triage.md   relatório do tools/log_triage.py (e veredito do cenário, com -Scenario)
 
     Nada é escrito fora de captures/. A pasta do dump só é lida.
 
@@ -21,6 +23,8 @@
     tools/run.ps1 -Label validation --vulkan-validation --shader-validation
     tools/run.ps1 -Label cbdump -TimeoutSec 120 --command-buffer-dump
     tools/run.ps1 -DryRun
+    tools/run.ps1 -Scenario boot               # cenário de tests/regression/scenarios.toml
+    tools/run.ps1 -Trace -Label trace          # conta as chamadas a cada import
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
@@ -35,6 +39,10 @@ param(
     [string]$GameDir = '',
     # Sobrescreve KYTY_EXE do desport.local.ini.
     [string]$KytyExe = '',
+    # Cenário de tests/regression/scenarios.toml: flags, tempo limite, trace e critérios.
+    [string]$Scenario = '',
+    # Liga o rastreamento de chamadas (DES_TRACE=1 -> calls.json).
+    [switch]$Trace,
     # Monta e grava o comando em run.json sem executar.
     [switch]$DryRun
 )
@@ -125,6 +133,37 @@ if ($KytyExe) {
     $KytyExe = 'kyty_emulator.exe'
 }
 
+# Flags padrão do jogo (game/config/des.toml) vêm antes das do cenário e da linha de comando.
+$gameConfig = Join-Path $Root 'game/config/des.toml'
+$gameFlags = @()
+if (Test-Path -LiteralPath $gameConfig) {
+    $json = & python -I -c "import json,sys,tomllib; print(json.dumps(tomllib.load(open(sys.argv[1],'rb')).get('flags', [])))" $gameConfig
+    if ($LASTEXITCODE -ne 0) { Fail "game/config/des.toml inválido" }
+    $gameFlags = @($json | ConvertFrom-Json)
+}
+
+$scenarioInfo = $null
+if ($Scenario) {
+    $tomlPath = Join-Path $Root 'tests/regression/scenarios.toml'
+    $json = & python -I -c "import json,sys,tomllib; d=tomllib.load(open(sys.argv[1],'rb')); print(json.dumps(d.get(sys.argv[2])))" $tomlPath $Scenario
+    if ($LASTEXITCODE -ne 0 -or -not $json -or $json -eq 'null') { Fail "cenário desconhecido: $Scenario ($tomlPath)" }
+    $scenarioInfo = $json | ConvertFrom-Json
+    if ($scenarioInfo.PSObject.Properties['enabled'] -and -not $scenarioInfo.enabled) {
+        Fail "cenário '$Scenario' está desativado (enabled = false): $($scenarioInfo.description)"
+    }
+    if ($scenarioInfo.PSObject.Properties['type'] -and $scenarioInfo.type -ne 'auto') {
+        Write-Host "Cenário '$Scenario' é $($scenarioInfo.type): exige o Ronaldo durante a execução." -ForegroundColor Yellow
+    }
+    if ($scenarioInfo.PSObject.Properties['flags']) { $Flags = @($scenarioInfo.flags) + @($Flags) }
+    if ($scenarioInfo.PSObject.Properties['timeout_sec'] -and -not $PSBoundParameters.ContainsKey('TimeoutSec')) {
+        $TimeoutSec = [int]$scenarioInfo.timeout_sec
+    }
+    if ($scenarioInfo.PSObject.Properties['trace'] -and $scenarioInfo.trace) { $Trace = [switch]$true }
+    if (-not $Label) { $Label = $Scenario }
+}
+# No PowerShell 5.1 um array JSON vazio vira um elemento vazio; descarta-os.
+$Flags = @(@($gameFlags) + @($Flags) | Where-Object { $_ -ne $null -and "$_" -ne '' })
+
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $name = if ($Label) { "$stamp-$($Label -replace '[^\w.-]', '_')" } else { $stamp }
 $RunDir = Join-Path $Root "captures/runs/$name"
@@ -162,6 +201,8 @@ $run = [ordered]@{
     flags       = @($Flags)
     game_dir    = $GameDir
     timeout_sec = $TimeoutSec
+    scenario    = $Scenario
+    trace       = [bool]$Trace
     engine_git  = Get-GitInfo (Join-Path $Root 'engine')
     desport_git = Get-GitInfo $Root
     host        = [ordered]@{ machine = $env:COMPUTERNAME; os = [Environment]::OSVersion.VersionString }
@@ -185,11 +226,16 @@ if ($DryRun) {
 Save-Run
 Write-Host "Executando ($TimeoutSec s): $($run.command)"
 
+if ($Trace) {
+    $env:DES_TRACE = '1'
+    $env:DES_TRACE_FILE = Join-Path $RunDir 'calls.json'
+}
 $timer = [Diagnostics.Stopwatch]::StartNew()
 $proc = Start-Process -FilePath $KytyExe -ArgumentList $argString -WorkingDirectory $RunDir `
     -RedirectStandardOutput (Join-Path $RunDir 'stdout.txt') `
     -RedirectStandardError (Join-Path $RunDir 'stderr.txt') -PassThru
 [void]$proc.Handle  # no PowerShell 5.1, sem isso ExitCode fica vazio depois do término
+Remove-Item Env:DES_TRACE, Env:DES_TRACE_FILE -ErrorAction SilentlyContinue
 
 # Memória a cada segundo (PA-001 em docs/STATUS.md): privada e working set do processo principal.
 $memFile = Join-Path $RunDir 'memory.csv'
@@ -234,9 +280,19 @@ Write-Host ''
 Write-Host "Resultado: $($run.result)  código: $($run.exit_code)  duração: $($run.duration_sec) s"
 Write-Host "Memória: pico privada $($run.memory.peak_private_mb) MB, pico working set $($run.memory.peak_working_set_mb) MB"
 Write-Host "Pasta: $RunDir"
-if (Test-Path -LiteralPath $logFile) {
-    Write-Host '--- últimas 20 linhas do log ---'
-    Get-Content -LiteralPath $logFile -Tail 20
-} else {
+if (-not (Test-Path -LiteralPath $logFile)) {
     Write-Host 'log.txt não foi criado; veja stdout.txt e stderr.txt.' -ForegroundColor Yellow
+    exit 1
+}
+# Triagem automática (tools/log_triage.py); com cenário, o veredito vai para run.json.
+$triageArgs = @('-I', (Join-Path $Root 'tools/log_triage.py'), $RunDir)
+if ($Scenario) { $triageArgs += @('--scenario', $Scenario) }
+Write-Host ''
+& python @triageArgs
+$triageCode = $LASTEXITCODE
+if ($Scenario) {
+    $run.scenario_result = if ($triageCode -eq 0) { 'pass' } elseif ($triageCode -eq 2) { 'fail' } else { 'error' }
+    Save-Run
+    Write-Host "Cenário $Scenario`: $($run.scenario_result)"
+    if ($triageCode -ne 0) { exit 2 }
 }
