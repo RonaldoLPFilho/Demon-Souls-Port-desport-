@@ -6,47 +6,90 @@
 
 | # | Tarefa | Estado | Evidência / observação |
 |---|---|---|---|
-| 1 | Repositório e estrutura | feito (2026-10-23) | `git init` (branch `main`), estrutura da §3, `LICENSE` (texto canônico GPL-2.0, igual ao do bbport, sha256 `edaef632…b233f6`), `.gitignore`, `desport.local.ini.example`, `docs/{STATUS,FIXES,DECISIONS}.md`. `engine/` ainda não existe (depende da tarefa 3). |
-| — | ADR-000 (bbport) | feito (2026-10-23) | `docs/DECISIONS.md`. Lidos: README, EMULATION_REMOVAL_PLAN, ROADMAP, parallel_gpu, prepare.py, link_modules.py, patches.py, runtime.h, probe.c (início), runtime_kernel.c (início). |
-| 2 | Localizar o dump | **bloqueado: falta o caminho** | Pedir ao Ronaldo o `DES_GAME_DIR`. |
-| 3 | Fork do KytyPS5 | **bloqueado: falta o fork** | O upstream `KytyPS5/KytyPS5` está hoje exatamente em `9dcff95` (2026-10-23 09:51 +0200, "shader: fix crash from packed ancillary used as DPP old operand (#1769)"), conferido por clone só-leitura. |
-| 4 | Build | **bloqueado: toolchain ausente** | Ver "Toolchain" abaixo. |
-| 5 | `tools/run.ps1` v1 | feito (2026-10-23) | Testado sem o emulador: modo simulado, erro sem dump, erro sem exe, código de saída repassado (`cmd /c exit 7` → `crashed_or_error`, 7), tempo limite com encerramento da árvore de processos (3 s, nenhum filho órfão), pastas com nome repetido no mesmo segundo. Falta a primeira execução real. |
-| 6 | Execuções de linha de base (a/b/c) | pendente | Depende de 2, 3, 4. Exige o Ronaldo observando a tela. |
+| 1 | Repositório e estrutura | feito (2026-10-23) | `git init` (branch `main`), estrutura da §3, `LICENSE` (texto canônico GPL-2.0, igual ao do bbport, sha256 `edaef632…b233f6`), `.gitignore`, `desport.local.ini.example`, `docs/{STATUS,FIXES,DECISIONS}.md`. |
+| — | ADR-000 (bbport) | feito (2026-10-23) | `docs/DECISIONS.md`. |
+| 2 | Localizar o dump | **bloqueado: dump não utilizável** | Ver "Dump" abaixo. |
+| 3 | Fork do KytyPS5 | feito (2026-10-23) | Submódulo `engine/` → `https://github.com/RonaldoLPFilho/KytyPS5`, branch `desport` a partir de `9dcff95` (ADR-002). A branch existe só localmente; falta publicar no fork. |
+| 4 | Build | feito com ressalvas (2026-10-23) | Release e RelWithDebInfo compilam. `ctest`: 60/61 no Release, 59/61 no RelWithDebInfo (FIX-001; KP-001, KP-002). O critério "passa no `ctest`" não está cumprido por completo. |
+| 5 | `tools/run.ps1` v1 | feito (2026-10-23) | Testado sem o jogo (simulado, erros, código de saída, tempo limite com encerramento da árvore). Falta a primeira execução real. |
+| 6 | Execuções de linha de base (a/b/c) | pendente | Depende da tarefa 2. Exige o Ronaldo observando a tela. |
 | 7 | Relatório de linha de base | pendente | — |
 
-### Descobertas da sessão
-- **O KytyPS5 não grava log nenhum por padrão**: `printf_direction` padrão é `Silent`
-  (`src/common/emulatorConfig.h:81`), e o logger inteiro segue essa opção
-  (`src/common/logging/log.cpp:162`). O `run.ps1` passa sempre
-  `--printf-direction File --printf-output-file captures/runs/<id>/log.txt`. O valor do enum
-  diferencia maiúsculas (`File`, via `magic_enum`).
-- O `--game` aceita pasta, ELF ou arquivo compactado com `eboot.bin` na raiz (`src/main.cpp:248`).
-- Existe build sem Qt (`-DKYTY_BUILD_LAUNCHER=OFF`, alvos `kyty_emulator` e `kyty_tests`).
-  Como o `run.ps1` chama o `kyty_emulator` direto, o Qt só é necessário para o launcher.
-- O CI do KytyPS5 usa Qt 6.10.3 `win64_msvc2022_64` e glslang via vcpkg.
+## Dump (tarefa 2) — verificado em 2026-10-23, somente leitura
 
-## Toolchain (verificado em 2026-10-23, `tools/setup-toolchain.ps1 -CheckOnly`)
+`D:\demon` contém **apenas** `Demons.Souls-PPSA01341-EUR-v01.007.000.pkg` (53.514.949.630 bytes),
+sem `eboot.bin`, `sce_sys/` nem `sce_module/`. Divergências com o plano:
+1. **Formato:** pacote com cabeçalho `7F 46 49 48` ("\x7FFIH"). O KytyPS5 só aceita pasta, ELF ou
+   `.zar` (`engine/src/common/archive.cpp:95`). Extrair um `.pkg` do PS5 normalmente exige
+   descriptografia, proibida no projeto (§1.1.2). Nada além dos primeiros 64 bytes foi lido.
+2. **Região:** PPSA01341 (EUR), o plano fixa PPSA01342 (USA).
+3. **Versão:** v01.007.000 (com update).
 
-| Item | Estado |
+Aguardando o Ronaldo: dump em texto claro (pasta com `eboot.bin`, `sce_sys/param.json`,
+`sce_module/`, ou `.zar`), e decisão sobre a região (ADR-001). `desport.local.ini` não foi criado.
+
+## Build (tarefa 4)
+
+`tools/build-engine.ps1` (Ninja + clang-cl, `-DKYTY_BUILD_LAUNCHER=OFF`, alvos
+`kyty_emulator` + `kyty_tests`, `-DBUILD_TESTING=ON`). Sem Qt: o `run.ps1` chama o
+`kyty_emulator` direto; o launcher fica para quando for necessário (`-QtDir`).
+
+| Build | Pasta | Resultado |
+|---|---|---|
+| Release | `engine/_Build/windows` | ok. `kyty_emulator.exe` (26.578.944 bytes) responde a `--help`: `Release, clang-lld_link, ver = 0.3.0, git = 9dcff95e-dirty`. |
+| RelWithDebInfo | `engine/_Build/windows-dbg` | ok (433 s), com `kyty_emulator.pdb`; responde a `--help`. A string de versão diz "Release" também neste build (cosmético). |
+
+`ctest` Release: **60 de 61 passam**. `ctest` RelWithDebInfo: **59 de 61**. Logs em `build/`
+(ignorado pelo git).
+- `vdecsw` não compilava no Windows → corrigido (FIX-001).
+- `kernel_file_system` falha com `0xc0000028` nos dois builds (KP-001).
+- `audio_out2_port` falha às vezes, só no RelWithDebInfo (KP-002).
+
+## Problemas conhecidos
+
+### KP-001 — `kernel_file_system_tests` aborta com `0xc0000028` no Windows
+- Determinístico (5 de 5), sem saída nenhuma; falha também com `--mutex-only`, ou seja, já no
+  primeiro caso (`TestMutexHandoff`: threads com pilha própria, sinais pendentes e
+  `PthreadCancel`/`PthreadTestcancel`) ou na inicialização.
+- O teste não faz parte do CI do upstream no Windows (`.github/workflows/build.yml:124`).
+- Hipótese (não confirmada): `0xc0000028` é `STATUS_BAD_STACK`. Ao entrar em código do jogo, o
+  engine zera `StackBase`/`StackLimit` do TEB (`gs:0x08`/`gs:0x10`,
+  `engine/src/kernel/pthread.cpp:892-897`); qualquer despacho de exceção SEH ou desempilhamento
+  nesse estado aborta com esse código.
+- Relevância: o mesmo caminho roda com o jogo. Se o Demon's Souls usar cancelamento de thread
+  ou gerar exceções SEH em threads do jogo, isso aparece na Fase 3. Para confirmar é preciso
+  um depurador (WinDbg/cdb, não instalado) e o build RelWithDebInfo.
+
+### KP-002 — `audio_out2_port_tests` intermitente no RelWithDebInfo
+- RelWithDebInfo: `0xc0000005` (violação de acesso) em 7 de 10 execuções. Release: 10 de 10
+  passam. Esse teste está no CI do upstream no Windows, que roda em Release.
+- Hipótese: condição de corrida no `AudioOut2` (portas/threads de áudio) que o timing do build
+  com depuração expõe. Relevante para a Fase 5 (áudio); investigar com depurador quando
+  chegarmos lá, ou antes se aparecer com o jogo.
+
+## Toolchain (verificado em 2026-10-23)
+
+| Item | Versão |
 |---|---|
 | Git | 2.55.0.windows.5 |
 | Python | 3.15.0 |
-| winget | disponível |
-| Build Tools 2022 + Clang tools (`clang-cl`) | **falta** |
-| CMake ≥ 3.22.1 | **falta** (winget: 4.4.4) |
-| Ninja | **falta** (winget: 1.13.2) |
-| Vulkan SDK (glslangValidator, spirv-val, spirv-dis, validação) | **falta** (winget: 1.4.363.0) |
-| RenderDoc | **falta** (winget: 1.46.0) |
-| pre-commit | **falta** (pip) |
-| Qt 6 (só launcher) | **falta**, opcional |
+| Build Tools 2022 | 17.14.42 |
+| clang-cl | 19.1.5 |
+| CMake | 4.4.4 |
+| Ninja | 1.13.2 |
+| Vulkan SDK | 1.4.363.0 (glslang 16.6.0, SPIRV-Tools v2026.4) |
+| RenderDoc | 1.46 |
+| pre-commit | 4.7.0 (hook instalado em `engine/`) |
+| Qt | não instalado (opcional, só launcher) |
+| Hardware | AMD Ryzen 7 9800X3D; NVIDIA GeForce RTX 5080, driver 32.0.16.1714 |
 
-Instalação: `tools/setup-toolchain.ps1` num PowerShell como administrador (`-WithQt` para o Qt).
+## Descobertas
+- **O KytyPS5 não grava log nenhum por padrão** (`printf_direction = Silent`,
+  `src/common/emulatorConfig.h:81`); o `run.ps1` passa `--printf-direction File`.
+- `--game` aceita pasta, ELF ou `.zar` (`src/main.cpp:248`, `src/common/archive.cpp:95`).
+- `--game-patch` recebe um arquivo de cheats ETAHen em JSON.
 
 ## Próximo passo concreto
-1. Ronaldo: rodar `tools/setup-toolchain.ps1` como administrador.
-2. Ronaldo: informar o caminho do dump (`DES_GAME_DIR`).
-3. Ronaldo: criar o fork do KytyPS5 no GitHub dele e passar a URL.
-4. Agente: validar o dump (tarefa 2, ADR-001), submódulo + branch `desport` (tarefa 3,
-   ADR-002), build Release e RelWithDebInfo + `ctest` (tarefa 4).
-5. Execuções de linha de base com o Ronaldo observando (tarefa 6).
+1. Ronaldo: fornecer o dump em texto claro e decidir a região (EUR × USA).
+2. Ronaldo: autorizar o push da branch `desport` para o fork.
+3. Agente: validar o dump e escrever o ADR-001; preparar as 3 execuções de linha de base.

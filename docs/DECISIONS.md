@@ -123,6 +123,33 @@ do escopo nesta máquina (RTX 5080).
 
 _Pendente (Fase 0, tarefa 2): fixada pela leitura de `sce_sys/param.json` do dump._
 
-## ADR-002 — Fork do KytyPS5, commit base e política de rebase
+## ADR-002 — Fork do KytyPS5, commit base e política de rebase (2026-10-23)
 
-_Pendente (Fase 0, tarefa 3): depende do fork no GitHub do Ronaldo._
+**Status:** aceito.
+
+**Contexto.** O desport é um fork do KytyPS5 com uma camada própria do Demon's Souls
+(PLAN.md §0, Trilha A). O código do engine precisa poder ser rebaseado sobre o upstream sem
+perder o que é nosso.
+
+**Decisão.**
+- Fork: `https://github.com/RonaldoLPFilho/KytyPS5`, de propriedade do Ronaldo.
+- Submódulo em `engine/` apontando para o fork, com `branch = desport` no `.gitmodules`.
+- Branch `desport` criada a partir de **`9dcff95e809ec43ba66f56648164070f4b16348f`**
+  (2026-10-23 09:51 +0200, "shader: fix crash from packed ancillary used as DPP old operand
+  (#1769)"). Nessa data, o `main` do upstream e o do fork estavam ambos nesse commit.
+- Toda mudança no engine leva `// desport: <motivo>` (PLAN.md §1.2 regra 6), e mudanças
+  específicas do jogo preferem `game/` a editar o engine.
+- **Rebase** (PLAN.md §10.3): a cada 2–4 semanas, ou quando o upstream corrigir algo do Demon's
+  Souls, rebasear `desport` sobre `upstream/main`, rodar a suíte de regressão inteira (§8.3) e
+  registrar aqui o novo commit base. Os conflitos são localizados por `grep -rn "desport:"`.
+- PRs ao upstream saem de branches isoladas a partir do `main` do upstream, preparados pelo
+  agente em `docs/upstream/` e escritos e enviados pelo Ronaldo (PLAN.md §11).
+
+**Consequências.** O commit do submódulo registrado no desport identifica exatamente o engine
+de cada execução (o `run.ps1` grava o hash em `run.json`). A branch `desport` precisa ser
+publicada no fork para que um clone do desport consiga inicializar o submódulo.
+
+### Histórico de commits base
+| Data | Commit base upstream | Motivo |
+|---|---|---|
+| 2026-10-23 | `9dcff95` | início do projeto |
