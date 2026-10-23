@@ -97,6 +97,24 @@ class TriageTests(unittest.TestCase):
             self.assertIn('3 janelas: mínimo 3.0, mediana 5.0, máximo 40.0', text)
             self.assertIn("0′ 4.0, 1′ 40.0", text)
 
+    def test_stats_per_frame(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'log.txt').write_text(
+                'DES_COUNTERS t=5000 frames=20 draws=2000 gpu_wait_ns=40000000 buffer_download_bytes=20480\n'
+                'DES_COUNTERS t=10000 frames=30 draws=3000 gpu_wait_ns=60000000 buffer_download_bytes=30720\n'
+                'DES_STAT t=5000 name=srt_materialize calls=1000 ms=500.0 bytes=0\n'
+                'DES_STAT t=10000 name=readback calls=50 ms=250.0 bytes=51200\n'
+                'DES_STAT_ADDR t=5000 name=readback region=0x2000000 calls=40 ms=200.0\n', encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            text = log_triage.render(report)
+            self.assertIn('- 50 quadros em 2 janelas de 5 s', text)
+            self.assertIn('| draws | 100.0 |', text)
+            self.assertIn('| gpu_wait_ns | 2.00 ms |', text)
+            self.assertIn('| buffer_download_bytes | 1 KiB |', text)
+            self.assertIn('| srt_materialize | 20.0 | 10.00 | 0 |', text)
+            self.assertIn('| readback | `0x2000000` | 40 | 200.0 |', text)
+
     def test_game_log_timings_and_errors(self):
         with tempfile.TemporaryDirectory() as root:
             run = make_run(root)

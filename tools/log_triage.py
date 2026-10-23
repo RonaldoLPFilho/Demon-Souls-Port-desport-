@@ -32,6 +32,7 @@ TOP = 10
 
 MILESTONE_RE = re.compile(r'^DES_MILESTONE (\S+) t=(\d+)(?: (.*))?$')
 FPS_RE = re.compile(r'^DES_FPS t=(\d+) fps=([\d.]+)$')
+STATS_RE = re.compile(r'^(DES_COUNTERS|DES_STAT|DES_STAT_ADDR) (.*)$')
 LOADING_RE = re.compile(r'^Loading: (.+)$')
 BASE_RE = re.compile(r'^base_vaddr\s*=\s*0x([0-9a-fA-F]+)')
 SIZE_RE = re.compile(r'^mapped_size\s*=\s*0x([0-9a-fA-F]+)')
@@ -50,7 +51,7 @@ def normalize(line):
 def parse_log(path):
     text = path.read_text(encoding='utf-8', errors='replace')
     lines = text.splitlines()
-    report = dict(lines=len(lines), milestones=[], fps=[], modules=[], error=None, host_exception=None,
+    report = dict(lines=len(lines), milestones=[], fps=[], counters=[], stats=[], stat_addrs=[], modules=[], error=None, host_exception=None,
                   stub_calls={}, stubbed_at_link=0, vulkan={}, warnings={})
     pending_module = None
     for i, line in enumerate(lines):
@@ -58,6 +59,10 @@ def parse_log(path):
             report['milestones'].append(dict(name=m.group(1), t_ms=int(m.group(2)), detail=m.group(3) or ''))
         elif m := FPS_RE.match(line):
             report['fps'].append((int(m.group(1)), float(m.group(2))))
+        elif m := STATS_RE.match(line):
+            fields = dict(kv.split('=', 1) for kv in m.group(2).split() if '=' in kv)
+            key = {'DES_COUNTERS': 'counters', 'DES_STAT': 'stats', 'DES_STAT_ADDR': 'stat_addrs'}[m.group(1)]
+            report[key].append(fields)
         elif m := LOADING_RE.match(line):
             pending_module = dict(path=m.group(1).replace('\\', '/'), base=None, size=None)
             report['modules'].append(pending_module)
@@ -233,6 +238,46 @@ def evaluate(report, scenario):
     return failures
 
 
+def _render_stats(report):
+    """Médias por quadro dos contadores do engine (DES_COUNTERS) e dos escopos DES_STAT."""
+    L = ['## Contadores por quadro (DES_STATS)\n']
+    frames = sum(int(c.get('frames', 0)) for c in report['counters'])
+    if frames:
+        names = [k for k in report['counters'][0] if k not in ('t', 'frames')]
+        L.append(f'- {frames} quadros em {len(report["counters"])} janelas de 5 s\n')
+        L.append('| Contador | por quadro |')
+        L.append('|---|---:|')
+        for name in names:
+            total = sum(int(c.get(name, 0)) for c in report['counters'])
+            value = total / frames
+            shown = f'{value / 1e6:.2f} ms' if name.endswith('_ns') else (
+                f'{value / 1024:.0f} KiB' if name.endswith('_bytes') else f'{value:.1f}')
+            L.append(f'| {name} | {shown} |')
+        L.append('')
+    if report['stats'] and frames:
+        totals = {}
+        for s in report['stats']:
+            calls, ms, size = totals.get(s['name'], (0, 0.0, 0))
+            totals[s['name']] = (calls + int(s['calls']), ms + float(s['ms']), size + int(s.get('bytes', 0)))
+        L.append('| Escopo | chamadas/quadro | ms/quadro | KiB/quadro |')
+        L.append('|---|---:|---:|---:|')
+        for name, (calls, ms, size) in sorted(totals.items(), key=lambda kv: -kv[1][1]):
+            L.append(f'| {name} | {calls / frames:.1f} | {ms / frames:.2f} | {size / 1024 / frames:.0f} |')
+        L.append('')
+    if report['stat_addrs']:
+        regions = {}
+        for s in report['stat_addrs']:
+            key = (s['name'], s['region'])
+            calls, ms = regions.get(key, (0, 0.0))
+            regions[key] = (calls + int(s['calls']), ms + float(s['ms']))
+        L.append('| Escopo | região de 64 KiB | chamadas | ms |')
+        L.append('|---|---|---:|---:|')
+        for (name, region), (calls, ms) in sorted(regions.items(), key=lambda kv: -kv[1][1])[:TOP]:
+            L.append(f'| {name} | `{region}` | {calls} | {ms:.1f} |')
+        L.append('')
+    return L
+
+
 def _by_minute(fps):
     out = {}
     for t_ms, value in fps:
@@ -277,6 +322,8 @@ def render(report):
         L.append('- Por minuto: ' + ', '.join(
             f"{minute}′ {sum(v) / len(v):.1f}" for minute, v in sorted(_by_minute(report['fps']).items())))
         L.append('')
+    if report['counters'] or report['stats']:
+        L.extend(_render_stats(report))
     L.append('## Imports ausentes\n')
     L.append(f"- Ligados a stub na relocação: {report['stubbed_at_link']}")
     if report['stub_call_rows']:

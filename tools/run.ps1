@@ -47,6 +47,8 @@ param(
     [string]$WorkDir = '',
     # Liga o rastreamento de chamadas (DES_TRACE=1 -> calls.json).
     [switch]$Trace,
+    # Liga os contadores de desempenho no log (DES_STATS=1 -> DES_COUNTERS, DES_STAT, DES_STAT_ADDR).
+    [switch]$Stats,
     # Monta e grava o comando em run.json sem executar.
     [switch]$DryRun
 )
@@ -207,6 +209,7 @@ $run = [ordered]@{
     timeout_sec = $TimeoutSec
     scenario    = $Scenario
     trace       = [bool]$Trace
+    stats       = [bool]$Stats
     engine_git  = Get-GitInfo (Join-Path $Root 'engine')
     desport_git = Get-GitInfo $Root
     host        = [ordered]@{ machine = $env:COMPUTERNAME; os = [Environment]::OSVersion.VersionString }
@@ -230,6 +233,7 @@ if ($DryRun) {
 Save-Run
 Write-Host "Executando ($TimeoutSec s): $($run.command)"
 
+if ($Stats) { $env:DES_STATS = '1' }
 if ($Trace) {
     $env:DES_TRACE = '1'
     $env:DES_TRACE_FILE = Join-Path $RunDir 'calls.json'
@@ -245,7 +249,7 @@ $proc = Start-Process -FilePath $KytyExe -ArgumentList $argString -WorkingDirect
     -RedirectStandardOutput (Join-Path $RunDir 'stdout.txt') `
     -RedirectStandardError (Join-Path $RunDir 'stderr.txt') -PassThru
 [void]$proc.Handle  # no PowerShell 5.1, sem isso ExitCode fica vazio depois do término
-Remove-Item Env:DES_TRACE, Env:DES_TRACE_FILE -ErrorAction SilentlyContinue
+Remove-Item Env:DES_TRACE, Env:DES_TRACE_FILE, Env:DES_STATS -ErrorAction SilentlyContinue
 
 # Memória a cada segundo (PA-001 em docs/STATUS.md): privada e working set do processo principal.
 $memFile = Join-Path $RunDir 'memory.csv'

@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr int MaxFrames = 12;
+constexpr int MaxFrames = 48;
 
 struct ThreadData {
 	HANDLE                                handle = nullptr;
