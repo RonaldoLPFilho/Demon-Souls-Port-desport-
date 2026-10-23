@@ -1,0 +1,40 @@
+# desport — nada do jogo nem derivado dele entra no git (PLAN.md §1.1).
+
+# Saídas geradas, capturas, saves e caches
+/out/
+/captures/
+/user/
+/build/
+_Build/
+
+# Configuração local (caminho do dump etc.)
+*.local.ini
+
+# Arquivos do jogo e derivados, caso apareçam fora das pastas acima
+eboot.bin
+*.prx
+*.sprx
+*.self
+*.elf
+*.zar
+*.pkg
+sce_sys/
+sce_module/
+*.rdc
+*.spv
+*.pm4
+*.dds
+*.tpf
+*.bnd
+
+# Python / ferramentas
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editores / SO
+.vs/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini

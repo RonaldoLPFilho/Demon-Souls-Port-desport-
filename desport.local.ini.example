@@ -1,0 +1,8 @@
+# Copie para desport.local.ini (ignorado pelo git) e preencha.
+# Pasta do dump do Demon's Souls (PPSA01342, USA), já em texto claro.
+# Deve conter eboot.bin, sce_sys/param.json e sce_module/ (ou um .zar com eboot.bin na raiz).
+# Somente leitura: nenhuma ferramenta do projeto escreve nela.
+DES_GAME_DIR=
+
+# Executável do KytyPS5 instalado (padrão: engine/_Build/windows/install/kyty_emulator.exe)
+KYTY_EXE=
