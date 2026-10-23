@@ -72,6 +72,8 @@ if ($QtDir) {
     Run cmake @('--install', $build, '--prefix', (Join-Path $build 'install'))
 } else {
     Run cmake @('--build', $build, '--target', 'kyty_emulator', 'kyty_tests')
+    # Copia assets e libwinpthread-1.dll para junto do executável (o run.ps1 procura aqui primeiro).
+    Run cmake @('--install', $build, '--prefix', (Join-Path $build 'install'))
 }
 if ($Test) { Run ctest @('--test-dir', $build, '--output-on-failure') }
 Write-Host ("Concluído em {0:N0} s: {1}" -f $timer.Elapsed.TotalSeconds, $build)

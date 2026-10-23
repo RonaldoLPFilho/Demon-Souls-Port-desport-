@@ -119,9 +119,39 @@ do escopo nesta máquina (RTX 5080).
 
 ---
 
-## ADR-001 — Versão alvo do jogo
+## ADR-001 — Versão alvo do jogo (2026-10-23)
 
-_Pendente (Fase 0, tarefa 2): fixada pela leitura de `sce_sys/param.json` do dump._
+**Status:** proposto, aguardando confirmação do Ronaldo (muda a região fixada no PLAN.md).
+
+**Contexto.** O plano fixava PPSA01342 (USA). O dump fornecido pelo Ronaldo, extraído por ele
+do próprio pacote em `D:\demon\Demon`, é a versão europeia. Lido em 2026-10-23, somente
+leitura, de `sce_sys/param.json`:
+
+| Campo | Valor |
+|---|---|
+| `titleId` | `PPSA01341` |
+| `contentId` | `EP9000-PPSA01341_00-DEMONSSOULS00000` (prefixo `EP` = Europa) |
+| `contentVersion` | `01.007.000` |
+| `masterVersion` | `01.00` |
+| `applicationDrmType` | `standard` |
+| `requiredSystemSoftwareVersion` / `sdkVersion` | `0x0100000000000000` |
+| `gameversion.txt` | `+BuildVersion=2025-10-15.877562` |
+
+Executáveis (todos SELF com magic `4F153D1D`, variante aceita pelo `Elf64::IsSelf()`, nenhum
+segmento com bit de criptografia/compressão; `tools/inspect_self.py`):
+
+| Arquivo | Bytes | SHA-256 |
+|---|---:|---|
+| `eboot.bin` | 45.719.603 | `d499226cdc4b074eb8ec72ac03ad469bb80f48e580164c08157e6fd0c608c2c5` |
+| `sce_module/libc.prx` | 1.917.258 | `59c3bf73b39b5332c5457c0469a5cc27a53aabe2f08f50030b903b497f1ca274` |
+| `sce_module/libSceNpCppWebApi.prx` | 8.349.543 | `c75ded10f33903325751e331303d1266d86f796bfaef87acfcb2e47a94c0d99b` |
+
+**Decisão (proposta).** A versão alvo fixa do projeto passa a ser **PPSA01341 (EUR),
+contentVersion 01.007.000**, identificada pelo SHA-256 do `eboot.bin` acima. Ferramentas e o
+futuro launcher conferem esse hash, como o bbport confere o dele (`game_check.py`).
+
+**Consequências.** O PLAN.md troca PPSA01342 por PPSA01341 no §0 e no §2.3. Uma eventual
+versão USA vira outro alvo, não suportado, até haver motivo para isso.
 
 ## ADR-002 — Fork do KytyPS5, commit base e política de rebase (2026-10-23)
 

@@ -8,25 +8,28 @@
 |---|---|---|---|
 | 1 | Repositório e estrutura | feito (2026-10-23) | `git init` (branch `main`), estrutura da §3, `LICENSE` (texto canônico GPL-2.0, igual ao do bbport, sha256 `edaef632…b233f6`), `.gitignore`, `desport.local.ini.example`, `docs/{STATUS,FIXES,DECISIONS}.md`. |
 | — | ADR-000 (bbport) | feito (2026-10-23) | `docs/DECISIONS.md`. |
-| 2 | Localizar o dump | **bloqueado: dump não utilizável** | Ver "Dump" abaixo. |
+| 2 | Localizar o dump | feito (2026-10-23), região a confirmar | `D:\demon\Demon`: PPSA01341 EUR 01.007.000, texto claro. ADR-001 proposto (EUR em vez de USA). |
 | 3 | Fork do KytyPS5 | feito (2026-10-23) | Submódulo `engine/` → `https://github.com/RonaldoLPFilho/KytyPS5`, branch `desport` a partir de `9dcff95` (ADR-002). Branch publicada no fork em 2026-10-23 (`origin/desport` = `54acdbb`). |
 | 4 | Build | feito com ressalvas (2026-10-23) | Release e RelWithDebInfo compilam. `ctest`: 60/61 no Release, 59/61 no RelWithDebInfo (FIX-001; KP-001, KP-002). O critério "passa no `ctest`" não está cumprido por completo. |
 | 5 | `tools/run.ps1` v1 | feito (2026-10-23) | Testado sem o jogo (simulado, erros, código de saída, tempo limite com encerramento da árvore). Falta a primeira execução real. |
-| 6 | Execuções de linha de base (a/b/c) | pendente | Depende da tarefa 2. Exige o Ronaldo observando a tela. |
+| 6 | Execuções de linha de base (a/b/c) | pronto para rodar | `run.ps1 -DryRun` monta o comando com o dump e o executável instalado. Exige o Ronaldo observando a tela. |
 | 7 | Relatório de linha de base | pendente | — |
 
 ## Dump (tarefa 2) — verificado em 2026-10-23, somente leitura
 
-`D:\demon` contém **apenas** `Demons.Souls-PPSA01341-EUR-v01.007.000.pkg` (53.514.949.630 bytes),
-sem `eboot.bin`, `sce_sys/` nem `sce_module/`. Divergências com o plano:
-1. **Formato:** pacote com cabeçalho `7F 46 49 48` ("\x7FFIH"). O KytyPS5 só aceita pasta, ELF ou
-   `.zar` (`engine/src/common/archive.cpp:95`). Extrair um `.pkg` do PS5 normalmente exige
-   descriptografia, proibida no projeto (§1.1.2). Nada além dos primeiros 64 bytes foi lido.
-2. **Região:** PPSA01341 (EUR), o plano fixa PPSA01342 (USA).
-3. **Versão:** v01.007.000 (com update).
-
-Aguardando o Ronaldo: dump em texto claro (pasta com `eboot.bin`, `sce_sys/param.json`,
-`sce_module/`, ou `.zar`), e decisão sobre a região (ADR-001). `desport.local.ini` não foi criado.
+- 1ª entrega (`D:\demon`): só o `.pkg` (`\x7FFIH`, 53.514.949.630 bytes), recusado; nada além
+  dos primeiros 64 bytes foi lido.
+- 2ª entrega: **`D:\demon\Demon`**, extraído pelo Ronaldo. Estrutura ok (`eboot.bin`,
+  `sce_sys/param.json`, `sce_module/` com `libc.prx` e `libSceNpCppWebApi.prx`, dados do jogo em
+  pastas como `levels/`, `textures/`, `sound/`).
+- `param.json`: `PPSA01341`, `EP9000-PPSA01341_00-DEMONSSOULS00000` (EUR), contentVersion
+  `01.007.000`, masterVersion `01.00`. `gameversion.txt`: `+BuildVersion=2025-10-15.877562`.
+- `tools/inspect_self.py`: os 3 executáveis são SELF `4F153D1D` (variante aceita pelo KytyPS5),
+  **nenhum segmento criptografado ou comprimido**. SHA-256 no ADR-001.
+- Tamanho total: ainda calculando (≈50 GB).
+- `desport.local.ini` criado com `DES_GAME_DIR=D:\demon\Demon` (ignorado pelo git).
+- **Divergência com o plano:** região EUR (PPSA01341), o plano fixava USA (PPSA01342). ADR-001
+  está como proposta até o Ronaldo confirmar.
 
 ## Build (tarefa 4)
 
@@ -44,6 +47,21 @@ Aguardando o Ronaldo: dump em texto claro (pasta com `eboot.bin`, `sce_sys/param
 - `vdecsw` não compilava no Windows → corrigido (FIX-001).
 - `kernel_file_system` falha com `0xc0000028` nos dois builds (KP-001).
 - `audio_out2_port` falha às vezes, só no RelWithDebInfo (KP-002).
+
+## Adiantado da Fase 1 (com OK do Ronaldo em 2026-10-23, enquanto o dump era extraído)
+
+- `tools/ps5elf.py` (parser SELF/ELF com limites, recusa de criptografia), `tools/inspect_self.py`
+  (→ `out/inventory.json`) e `tools/nid_db.py` (base de NIDs do engine e cobertura dos imports →
+  `out/nid_db.json`, `out/nid_status.json`, `IMPORTS.md`). 27 testes com executáveis e engine
+  sintéticos: `python -m unittest discover -s tests/tools`.
+- Validação contra o dump real: 1157 stubs PLT encontrados = 1157 relocações `JUMP_SLOT`;
+  procparam começa com `ORBI`; tabelas dinâmicas por `DT_*` (endereço virtual), não `DT_OS_*`.
+- **Primeiro número (preliminar):** o eboot importa 1181 símbolos de 47 bibliotecas.
+  `implemented` 665 (56,3%), `stub` 31 (2,6%), `missing` 129 (10,9%), `provided_by_game_module`
+  356 (30,1%) → **160 funções faltando**, 78 delas na `libSceAgc` e 24 na `libSceAgcDriver`.
+  Nenhum dos 129 NIDs `missing` aparece no código do engine; cada um tem no máximo 4 sítios de
+  chamada. O relatório está em `out/IMPORTS.md` até decidir se vai para `docs/` (contém NIDs e
+  endereços derivados do eboot).
 
 ## Problemas conhecidos
 
@@ -90,6 +108,8 @@ Aguardando o Ronaldo: dump em texto claro (pasta com `eboot.bin`, `sce_sys/param
 - `--game-patch` recebe um arquivo de cheats ETAHen em JSON.
 
 ## Próximo passo concreto
-1. Ronaldo: fornecer o dump em texto claro e decidir a região (EUR × USA).
-2. (feito) branch `desport` publicada no fork.
-3. Agente: validar o dump e escrever o ADR-001; preparar as 3 execuções de linha de base.
+1. Ronaldo: confirmar o ADR-001 (alvo EUR PPSA01341 01.007.000) e se o `IMPORTS.md` pode ir
+   para `docs/`.
+2. Ronaldo + agente: execuções de linha de base (tarefa 6), uma por vez, com o Ronaldo dizendo
+   até onde a tela chegou.
+3. Agente: relatório de linha de base (tarefa 7) e fechamento da Fase 0.
