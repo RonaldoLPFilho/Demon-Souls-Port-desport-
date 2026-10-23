@@ -13,8 +13,9 @@ Bloodborne que já roda nesta máquina em `D:\games\bbport-windows`). O executá
 do Demon's Souls de PS5 roda direto na CPU do PC, um runtime implementa só as funções do
 sistema do PS5 que o jogo chama, e os gráficos (GPU RDNA 2 do PS5) são traduzidos para Vulkan.
 
-**Jogo alvo:** Demon's Souls (Bluepoint, 2020), **PPSA01342 – USA**. A versão exata
-(base ou com update) é fixada na Fase 0 lendo `sce_sys/param.json` e não muda depois disso.
+**Jogo alvo:** Demon's Souls (Bluepoint, 2020), **PPSA01341 – EUR, versão 01.007.000**
+(ADR-001; o plano original fixava PPSA01342 – USA). A versão foi fixada na Fase 0 lendo
+`sce_sys/param.json` e não muda depois disso.
 
 **Base técnica:** [KytyPS5](https://github.com/KytyPS5/KytyPS5) (C++, GPL-2.0-only), commit
 de referência `9dcff95` (2026-10-23). Ele tem o papel que o shadPS4 teve no bbport.
@@ -240,7 +241,7 @@ Tarefas:
 2. **Localizar o dump.** Pedir ao Ronaldo o caminho e gravar em `desport.local.ini`.
    Validar sem modificar nada: existe `eboot.bin` (ou `.zar` com `eboot.bin` na raiz),
    `sce_sys/param.json`, `sce_module/`. Ler de `param.json`: title ID, versão do conteúdo,
-   versão do app, região. Confirmar que é `PPSA01342`. Registrar em `docs/STATUS.md`:
+   versão do app, região. Confirmar que é `PPSA01341` (ADR-001). Registrar em `docs/STATUS.md`:
    título, versão, tamanho total, lista dos arquivos em `sce_module/` com SHA-256.
    **A versão encontrada passa a ser a versão alvo fixa do projeto** (ADR-001).
 3. **Fork do KytyPS5.** O Ronaldo cria o fork no GitHub dele (peça). Adicionar como

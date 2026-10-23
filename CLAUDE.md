@@ -1,6 +1,6 @@
 # desport — instruções para o Claude Code
 
-Projeto: port nativo do Demon's Souls de PS5 (PPSA01342, USA) para PC, no modelo do bbport
+Projeto: port nativo do Demon's Souls de PS5 (PPSA01341, EUR, versão 01.007.000 — ADR-001) para PC, no modelo do bbport
 (Bloodborne), usando o KytyPS5 como base.
 
 **Antes de qualquer tarefa:** leia `PLAN.md` (plano mestre) e `docs/STATUS.md` (estado atual).

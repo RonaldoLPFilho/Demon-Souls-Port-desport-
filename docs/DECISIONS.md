@@ -121,7 +121,7 @@ do escopo nesta máquina (RTX 5080).
 
 ## ADR-001 — Versão alvo do jogo (2026-10-23)
 
-**Status:** proposto, aguardando confirmação do Ronaldo (muda a região fixada no PLAN.md).
+**Status:** aceito pelo Ronaldo em 2026-10-23 (muda a região fixada no PLAN.md).
 
 **Contexto.** O plano fixava PPSA01342 (USA). O dump fornecido pelo Ronaldo, extraído por ele
 do próprio pacote em `D:\demon\Demon`, é a versão europeia. Lido em 2026-10-23, somente
@@ -146,7 +146,7 @@ segmento com bit de criptografia/compressão; `tools/inspect_self.py`):
 | `sce_module/libc.prx` | 1.917.258 | `59c3bf73b39b5332c5457c0469a5cc27a53aabe2f08f50030b903b497f1ca274` |
 | `sce_module/libSceNpCppWebApi.prx` | 8.349.543 | `c75ded10f33903325751e331303d1266d86f796bfaef87acfcb2e47a94c0d99b` |
 
-**Decisão (proposta).** A versão alvo fixa do projeto passa a ser **PPSA01341 (EUR),
+**Decisão.** A versão alvo fixa do projeto passa a ser **PPSA01341 (EUR),
 contentVersion 01.007.000**, identificada pelo SHA-256 do `eboot.bin` acima. Ferramentas e o
 futuro launcher conferem esse hash, como o bbport confere o dele (`game_check.py`).
 

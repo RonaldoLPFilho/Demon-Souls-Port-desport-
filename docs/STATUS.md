@@ -12,8 +12,8 @@
 | 3 | Fork do KytyPS5 | feito (2026-10-23) | Submódulo `engine/` → `https://github.com/RonaldoLPFilho/KytyPS5`, branch `desport` a partir de `9dcff95` (ADR-002). Branch publicada no fork em 2026-10-23 (`origin/desport` = `54acdbb`). |
 | 4 | Build | feito com ressalvas (2026-10-23) | Release e RelWithDebInfo compilam. `ctest`: 60/61 no Release, 59/61 no RelWithDebInfo (FIX-001; KP-001, KP-002). O critério "passa no `ctest`" não está cumprido por completo. |
 | 5 | `tools/run.ps1` v1 | feito (2026-10-23) | Testado sem o jogo (simulado, erros, código de saída, tempo limite com encerramento da árvore). Falta a primeira execução real. |
-| 6 | Execuções de linha de base (a/b/c) | pronto para rodar | `run.ps1 -DryRun` monta o comando com o dump e o executável instalado. Exige o Ronaldo observando a tela. |
-| 7 | Relatório de linha de base | pendente | — |
+| 6 | Execuções de linha de base (a/b/c) | feito (2026-10-23) | As 3 param no mesmo `EXIT` do renderer (`descriptors.cpp:969`); zero mensagens de validação. Ver "Linha de base". |
+| 7 | Relatório de linha de base | feito (2026-10-23) | Ver "Relatório de linha de base". |
 
 ## Dump (tarefa 2) — verificado em 2026-10-23, somente leitura
 
@@ -47,6 +47,78 @@
 - `vdecsw` não compilava no Windows → corrigido (FIX-001).
 - `kernel_file_system` falha com `0xc0000028` nos dois builds (KP-001).
 - `audio_out2_port` falha às vezes, só no RelWithDebInfo (KP-002).
+
+## Linha de base (tarefa 6) — 2026-10-23
+
+### (a) padrão — `captures/runs/20261023-155444-a-padrao`
+- Comando: `kyty_emulator.exe --game D:\demon\Demon --printf-direction File ...` (engine
+  `9dcff95` + FIX-001, Release).
+- **Resultado:** o emulador abortou sozinho após **144,1 s** (código 321), antes do tempo limite.
+- **O que o Ronaldo viu:** janela com a arte do jogo (`frame` subindo a 60 fps, ~3600 quadros:
+  a tela de splash do KytyPS5 durante o carregamento), depois **tela preta** com `fps: 0`
+  (contador parado em 5489), depois a janela fechou.
+- **Último ponto atingido:** inicialização do sistema e do jogo; o jogo compilou 111 shaders de
+  compute e 1 de vértice, **nenhum de pixel**, ou seja, não desenhou nenhum quadro próprio.
+  Não há marcos ainda (Fase 2); "logo/intro/menu" não foram atingidos.
+- **Causa da parada** (`log.txt:33942`):
+  `scalar resource reads overlap a shader buffer write`
+  em `engine/src/graphics/host_gpu/renderer/pipeline/descriptors.cpp:969`. É uma checagem
+  conservadora do KytyPS5: num dispatch de compute, um shader lê por leitura escalar (valores
+  usados na especialização do pipeline) uma região de memória que um shader ligado no mesmo
+  conjunto escreve; sem poder provar que não há conflito, o engine aborta. Último shader
+  compilado: CS `0x02632cb15eb8128d`. É o primeiro bloqueio a atacar (Fase 3/4).
+- **Funções não implementadas:** 298 imports ligados a stub na relocação = 141 `missing`
+  (eboot + módulos) + 157 imports da `libSceNpCppWebApi`, que só é carregada quando o jogo pede
+  (bate com `out/nid_status.json`). **Nenhuma chamada a import não resolvido** no log.
+- Crash: não; parada controlada por `EXIT` do engine.
+- Observações: o emulador cria `_PipelineCache/`, `_DownloadData/` e `_TempData/` na pasta de
+  trabalho (a pasta da execução), então cada execução começa com o cache de pipelines vazio.
+  O log registra movimentos de mouse sobre a janela (ruído).
+
+### (b) validação — `captures/runs/20261023-155954-b-validacao`
+- Flags: `--vulkan-validation --shader-validation`, tempo limite 300 s.
+- **Resultado:** mesma parada, mesma mensagem e linha (`descriptors.cpp:969`), após **12,1 s**.
+- **O que o Ronaldo viu:** splash bem rápido, tela preta, janela fechou.
+- **Validação:** camada `VK_LAYER_KHRONOS_validation` ativada (flag ligada e
+  `VK_EXT_debug_utils` disponível, `vulkanWindow.cpp:741-752`). **Zero mensagens `[Vulkan][…]`**
+  (nem erro nem aviso) até a parada; no KytyPS5 um erro de validação aborta na hora
+  (`vulkanWindow.cpp`, `EXIT_COLOR`), então não houve erro de validação antes do bloqueio.
+- **Diferença de tempo para a (a) (144 s → 12 s):** na (a) o jogo só começou a compilar shaders
+  entre 53 e 91 s (pelos tempos do log de mouse); na (b), em poucos segundos. Hipótese: na (a)
+  os dados do jogo foram lidos a frio e o disco `D:` estava ocupado por uma varredura do dump
+  inteiro (cálculo de tamanho) em segundo plano. A (c) serve de terceira medida.
+
+### (c) dump de command buffers — `captures/runs/20261023-160213-c-cbdump`
+- Flags: `--command-buffer-dump` (dumps em `command_buffers/` da própria execução), limite 300 s.
+- **Resultado:** mesma parada (`descriptors.cpp:969`) após **7,2 s**. O Ronaldo viu o mesmo
+  padrão: splash rápido, tela preta, fechou. Disco livre e cache quente reforçam a hipótese de
+  que os 144 s da (a) foram I/O.
+- 54 command buffers (23 `a`, 19 `cc`, 12 `d`). Pacotes até a parada: 382 dispatches de
+  compute (308 `DISPATCH_DIRECT`, 74 `DISPATCH_INDIRECT`), 15 `DRAW_INDEX_AUTO`, **1 `R_FLIP`**
+  (o jogo chegou a apresentar um quadro), 1 `R_WAIT_FLIP_DONE`, muita sincronização
+  (`WAIT_REG_MEM` 519, `ACQUIRE_MEM` 502, `RELEASE_MEM` 263, `WRITE_DATA` 374).
+  **Nenhum pacote desconhecido.**
+
+### Relatório de linha de base (tarefa 7)
+- **Último ponto atingido (as 3 execuções, determinístico):** o sistema inicializa, o jogo roda
+  sua inicialização, cria 25 threads, abre o áudio, carrega dados, envia trabalho de GPU
+  (centenas de dispatches de compute, 15 draws sem shader de pixel, 1 flip) e o KytyPS5 para no
+  `EXIT` de `descriptors.cpp:969` ao montar um dispatch de compute. Na tela: splash → preto →
+  fecha. Nenhum quadro do jogo visível; logo, intro e menu não atingidos.
+- **Últimas 200 linhas relevantes do log:**
+  `captures/runs/20261023-155444-a-padrao/log_relevante_200.txt` (fora do git; sem as linhas
+  indentadas de parâmetros, mouse e patches de TLS). As últimas, antes do erro, são compilações
+  de shaders de compute bem-sucedidas.
+- **Erros de validação:** zero, de qualquer severidade (execução b).
+- **Avisos (iguais nas 3 execuções):** 6× `ignoring indirect uc reg GE_STEREO_CNTL`, 1×
+  `RenderTarget: temporary: ignoring PSN color round mode`, 1× `DepthTarget: ignoring enabled
+  depth/stencil state without a bound attachment`.
+- **Funções não implementadas:** 298 imports ligados a stub na relocação (141 `missing` + 157
+  da `libSceNpCppWebApi`, carregada sob demanda); **nenhuma foi chamada** antes da parada.
+- **Crash:** não. Parada controlada (código 321) por uma checagem conservadora do renderer.
+- **Primeiro alvo da Fase 3/4:** entender o dispatch que dispara a checagem (shader CS
+  `0x02632cb15eb8128d` foi o último compilado) e se a leitura escalar e a escrita realmente
+  colidem ou se a checagem é conservadora demais para este jogo.
 
 ## Adiantado da Fase 1 (com OK do Ronaldo em 2026-10-23, enquanto o dump era extraído)
 
@@ -107,9 +179,16 @@
 - `--game` aceita pasta, ELF ou `.zar` (`src/main.cpp:248`, `src/common/archive.cpp:95`).
 - `--game-patch` recebe um arquivo de cheats ETAHen em JSON.
 
+## Critério de saída da Fase 0
+- KytyPS5 compila: **sim** (Release e RelWithDebInfo).
+- Passa no `ctest`: **parcial** — 60/61 no Release (KP-001, teste que o upstream não roda no
+  Windows) e 59/61 no RelWithDebInfo (KP-002, intermitente).
+- Jogo executado nas 3 configurações: **sim**.
+- `STATUS.md` diz com evidência até onde ele chega: **sim**.
+- Decisão pendente do Ronaldo: aceitar o fechamento da Fase 0 com KP-001/KP-002 registrados,
+  ou investigá-los antes (precisa do WinDbg).
+
 ## Próximo passo concreto
-1. Ronaldo: confirmar o ADR-001 (alvo EUR PPSA01341 01.007.000) e se o `IMPORTS.md` pode ir
-   para `docs/`.
-2. Ronaldo + agente: execuções de linha de base (tarefa 6), uma por vez, com o Ronaldo dizendo
-   até onde a tela chegou.
-3. Agente: relatório de linha de base (tarefa 7) e fechamento da Fase 0.
+1. Ronaldo: decidir o fechamento da Fase 0 (acima) e se o `IMPORTS.md` pode ir para `docs/`.
+2. Agente: terminar a Fase 1 (já adiantada): revisar `IMPORTS.md`, varredura de instruções
+   (tarefa 4), superfície AGC em `docs/GPU_NOTES.md` (tarefa 5).
