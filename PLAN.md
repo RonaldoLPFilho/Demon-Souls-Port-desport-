@@ -409,6 +409,14 @@ Ferramentas a construir primeiro:
    depois de uma mudança) e marca regressões visuais acima de um limiar.
 
 Ordem de ataque:
+0. **Desempenho jogável primeiro (2026-10-23):** com 0–3 fps não dá para avaliar imagem. Medir
+   antes (compilação de shaders × E/S × CPU × GPU) e atacar o maior custo. Candidato principal:
+   **pré-compilação de shaders na abertura** (pedido do Ronaldo). O cache atual do KytyPS5
+   (`_PipelineCache/<título>.bin`) guarda só o binário do driver; a tradução PS5 → SPIR-V é
+   refeita a cada execução. Gravar em `user/` a "receita" de cada pipeline visto (shader do PS5,
+   estado, especialização de recursos — o mesmo registro do `DES_SHADER_DUMP` da ferramenta 1) e,
+   numa tela de carregamento antes de liberar o jogo, recompilar e criar todos em paralelo.
+   Cobre só o que já apareceu em alguma sessão; áreas novas ainda compilam na primeira visita.
 1. Zerar erros de `--vulkan-validation` e `--shader-validation` na tela de título.
 2. Corpus de shaders sem falhas de compilação/validação para tudo o que aparece até a
    criação de personagem.
