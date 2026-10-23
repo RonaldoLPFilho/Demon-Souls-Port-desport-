@@ -189,6 +189,21 @@
   contra 3,8–5,4 s nas execuções antigas no HD. A investigar na Fase 4 (desempenho de E/S).
 - Memória: 5,2 GB privados, 108 MB/min nos primeiros 4 min (inclui carregamento; PA-001).
 
+### Sessão de medição do Ronaldo — `captures/runs/20261023-183343-sessao-medicao`
+- Build desport (`01d7965`), SSD, cache de pipelines aquecido; 15 min, saída limpa (código 0).
+- Relato: abertura, menu, "iniciar" e cutscene inicial rápidos e responsivos. Depois de
+  "continuar jogo": fog de carregamento lenta, cutscene lenta, minutos de tela preta, e então o
+  personagem controlável a **3–5 fps**, em baixa resolução. Rodando, mas injogável.
+- **Compilação refeita mesmo com o cache aquecido:** 194 VS, 319 PS, 728 CS (1.260 shaders, quase
+  o mesmo da sessão com cache vazio). O `_PipelineCache/<título>.bin` guarda só o binário do driver;
+  a tradução PS5 → SPIR-V é refeita a cada execução. Explica a fog, a cutscene e a tela preta.
+- **Com a compilação já parada (personagem parado), a CPU continua saturada:** 13 threads do
+  emulador a ~96% cada (16 lógicos ocupados). Hipótese: espera ativa de threads do jogo (GPU
+  emulada ou locks) roubando CPU do thread que desenha. A confirmar com amostragem (Fase 4, item 0).
+- Memória: 4,9 GB no menu; degraus nos carregamentos até ~10,3 GB; **estável nos últimos 5 min
+  parado** (10.260 → 10.305 MB). Privada comprometida ~10 GB, working set residente ~1,9 GB no fim
+  (Gerenciador de Tarefas); sistema em 26,7/31 GB.
+
 ### Sessão livre do Ronaldo — `captures/runs/20261023-172446-sessao-livre-584c2e8`
 - Build upstream `584c2e8` (sem a camada desport, então sem marcos nem `calls.json`), dump no HD.
 - 15,5 min, terminou limpa (o Ronaldo fechou). O jogo abriu e respondeu, mas a **0–3 fps**: mesmo

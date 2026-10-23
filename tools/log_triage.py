@@ -31,6 +31,7 @@ GROWTH_ALERT_MB_PER_MIN = 5.0
 TOP = 10
 
 MILESTONE_RE = re.compile(r'^DES_MILESTONE (\S+) t=(\d+)(?: (.*))?$')
+FPS_RE = re.compile(r'^DES_FPS t=(\d+) fps=([\d.]+)$')
 LOADING_RE = re.compile(r'^Loading: (.+)$')
 BASE_RE = re.compile(r'^base_vaddr\s*=\s*0x([0-9a-fA-F]+)')
 SIZE_RE = re.compile(r'^mapped_size\s*=\s*0x([0-9a-fA-F]+)')
@@ -49,12 +50,14 @@ def normalize(line):
 def parse_log(path):
     text = path.read_text(encoding='utf-8', errors='replace')
     lines = text.splitlines()
-    report = dict(lines=len(lines), milestones=[], modules=[], error=None, host_exception=None,
+    report = dict(lines=len(lines), milestones=[], fps=[], modules=[], error=None, host_exception=None,
                   stub_calls={}, stubbed_at_link=0, vulkan={}, warnings={})
     pending_module = None
     for i, line in enumerate(lines):
         if m := MILESTONE_RE.match(line):
             report['milestones'].append(dict(name=m.group(1), t_ms=int(m.group(2)), detail=m.group(3) or ''))
+        elif m := FPS_RE.match(line):
+            report['fps'].append((int(m.group(1)), float(m.group(2))))
         elif m := LOADING_RE.match(line):
             pending_module = dict(path=m.group(1).replace('\\', '/'), base=None, size=None)
             report['modules'].append(pending_module)
@@ -230,6 +233,13 @@ def evaluate(report, scenario):
     return failures
 
 
+def _by_minute(fps):
+    out = {}
+    for t_ms, value in fps:
+        out.setdefault(t_ms // 60000, []).append(value)
+    return out
+
+
 def render(report):
     L = ['# Triagem da execução\n']
     if 'scenario' in report:
@@ -258,6 +268,14 @@ def render(report):
         L.append('| Marco | t (ms) | Detalhe |')
         L.append('|---|---:|---|')
         L.extend(f"| {m['name']} | {m['t_ms']} | {m['detail']} |" for m in ms)
+        L.append('')
+    if report['fps']:
+        values = sorted(f for _, f in report['fps'])
+        L.append('## FPS (DES_FPS, janelas de 5 s)\n')
+        L.append(f"- {len(values)} janelas: mínimo {values[0]:.1f}, mediana {values[len(values) // 2]:.1f}, "
+                 f"máximo {values[-1]:.1f}")
+        L.append('- Por minuto: ' + ', '.join(
+            f"{minute}′ {sum(v) / len(v):.1f}" for minute, v in sorted(_by_minute(report['fps']).items())))
         L.append('')
     L.append('## Imports ausentes\n')
     L.append(f"- Ligados a stub na relocação: {report['stubbed_at_link']}")

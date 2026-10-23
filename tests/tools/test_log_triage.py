@@ -86,6 +86,17 @@ class TriageTests(unittest.TestCase):
             self.assertIn('Último marco: **flip_1**', text)
             self.assertIn('**ALERTA**', text)
 
+    def test_fps_windows(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'log.txt').write_text('DES_FPS t=5000 fps=3.0\nDES_FPS t=10000 fps=5.0\n'
+                                         'DES_FPS t=65000 fps=40.0\n', encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            self.assertEqual(report['fps'], [(5000, 3.0), (10000, 5.0), (65000, 40.0)])
+            text = log_triage.render(report)
+            self.assertIn('3 janelas: mínimo 3.0, mediana 5.0, máximo 40.0', text)
+            self.assertIn("0′ 4.0, 1′ 40.0", text)
+
     def test_game_log_timings_and_errors(self):
         with tempfile.TemporaryDirectory() as root:
             run = make_run(root)
