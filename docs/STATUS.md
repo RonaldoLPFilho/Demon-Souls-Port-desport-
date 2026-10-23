@@ -9,7 +9,7 @@
 | 1 | Repositório e estrutura | feito (2026-10-23) | `git init` (branch `main`), estrutura da §3, `LICENSE` (texto canônico GPL-2.0, igual ao do bbport, sha256 `edaef632…b233f6`), `.gitignore`, `desport.local.ini.example`, `docs/{STATUS,FIXES,DECISIONS}.md`. |
 | — | ADR-000 (bbport) | feito (2026-10-23) | `docs/DECISIONS.md`. |
 | 2 | Localizar o dump | **bloqueado: dump não utilizável** | Ver "Dump" abaixo. |
-| 3 | Fork do KytyPS5 | feito (2026-10-23) | Submódulo `engine/` → `https://github.com/RonaldoLPFilho/KytyPS5`, branch `desport` a partir de `9dcff95` (ADR-002). A branch existe só localmente; falta publicar no fork. |
+| 3 | Fork do KytyPS5 | feito (2026-10-23) | Submódulo `engine/` → `https://github.com/RonaldoLPFilho/KytyPS5`, branch `desport` a partir de `9dcff95` (ADR-002). Branch publicada no fork em 2026-10-23 (`origin/desport` = `54acdbb`). |
 | 4 | Build | feito com ressalvas (2026-10-23) | Release e RelWithDebInfo compilam. `ctest`: 60/61 no Release, 59/61 no RelWithDebInfo (FIX-001; KP-001, KP-002). O critério "passa no `ctest`" não está cumprido por completo. |
 | 5 | `tools/run.ps1` v1 | feito (2026-10-23) | Testado sem o jogo (simulado, erros, código de saída, tempo limite com encerramento da árvore). Falta a primeira execução real. |
 | 6 | Execuções de linha de base (a/b/c) | pendente | Depende da tarefa 2. Exige o Ronaldo observando a tela. |
@@ -91,5 +91,5 @@ Aguardando o Ronaldo: dump em texto claro (pasta com `eboot.bin`, `sce_sys/param
 
 ## Próximo passo concreto
 1. Ronaldo: fornecer o dump em texto claro e decidir a região (EUR × USA).
-2. Ronaldo: autorizar o push da branch `desport` para o fork.
+2. (feito) branch `desport` publicada no fork.
 3. Agente: validar o dump e escrever o ADR-001; preparar as 3 execuções de linha de base.
