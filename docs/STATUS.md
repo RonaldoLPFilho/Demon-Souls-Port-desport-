@@ -1,6 +1,7 @@
 # Estado do projeto
 
-**Fase atual: 2 — Fork, camada do jogo e harness** (PLAN.md §6). Fases 0 e 1 concluídas em 2026-10-23.
+**Fase atual: 3 — Boot completo do sistema** (PLAN.md §6). Fases 0, 1 e 2 concluídas em 2026-10-23
+(portão da Fase 2: ADR-003 aceito).
 
 ## Fase 0 — progresso
 

@@ -295,7 +295,7 @@ estão.
 
 ## ADR-003 — Portão da Fase 2: estimativa e estratégia (2026-10-23)
 
-**Status:** proposto, aguardando decisão do Ronaldo (PLAN.md §6, portão da Fase 2).
+**Status:** aceito pelo Ronaldo em 2026-10-23 (PLAN.md §6, portão da Fase 2).
 
 **Fatos novos (contrariam a premissa do §0 de que o KytyPS5 "ainda não roda" o jogo):**
 - O README do KytyPS5 (commit `9dcff95`) mostra o Demon's Souls **em gameplay** no 1-1
@@ -323,7 +323,7 @@ estão.
   de personagem relatado), correção de efeitos e estabilidade, não "fazer aparecer imagem".
 - Fase 5 em diante: sem mudança.
 
-**Proposta de decisão.**
+**Decisão.**
 1. Manter "fork primeiro, port depois", mas **colado no upstream**: rebases frequentes e correções
    gerais preparadas como PR (escritas e enviadas pelo Ronaldo, §11), já que o upstream está ativo
    neste jogo.
