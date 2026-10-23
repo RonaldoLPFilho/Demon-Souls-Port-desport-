@@ -149,7 +149,58 @@ perder o que é nosso.
 de cada execução (o `run.ps1` grava o hash em `run.json`). A branch `desport` precisa ser
 publicada no fork para que um clone do desport consiga inicializar o submódulo.
 
-### Histórico de commits base
+### Histórico de commits base (ADR-002)
 | Data | Commit base upstream | Motivo |
 |---|---|---|
 | 2026-10-23 | `9dcff95` | início do projeto |
+
+---
+
+## ADR-004 — Requisito: DLSS (incluindo DLSS 5) e geração de quadros (2026-10-23)
+
+**Status:** aceito (requisito do Ronaldo). Numeração: ADR-003 fica reservado ao portão da
+Fase 2 (PLAN.md §6).
+
+**Contexto.** O bbport-windows (`D:\games\bbport-windows`, só leitura) já entrega, no
+Bloodborne:
+- DLSS nativo por `bin/bbport_dlss.dll` (licença MIT, IFreemz e contribuidores do bbport)
+  sobre o NGX (`bin/nvngx_dlss.dll` 310.9.1.0), com escolha de upscaler e preset no
+  `bbport.ini` (`upscaler=dlss`, `preset=`);
+- geração de quadros (`bin/nvngx_dlssg.dll`; `frame_gen`, `frame_gen_multiplier`,
+  `frame_gen_fit_display` no `bbport.ini`);
+- um caminho "DLSS 5" **de terceiros**, via add-on ReShade (`renodx-dlss5.addon64` /
+  `dlss5-feed.addon64`), que copia cor, profundidade, vetores de movimento e máscara do Vulkan
+  para imagens D3D12 compartilhadas e avalia lá. Nesta máquina ele **travou** no primeiro quadro
+  avaliado (`bin/dlss5-feed.log`: `0xC0000005` em `renodx-dlss5.addon64`, 2026-10-10).
+O código-fonte do `bbport_dlss.dll` não está em `D:\games\bloodborne_pc-0.4`; só a DLL.
+
+**Decisão.**
+1. O desport terá, como requisito do produto final: **DLSS Super Resolution / DLAA** na versão
+   mais recente do DLSS disponível, **incluindo DLSS 5**, e **geração de quadros DLSS**
+   (com multiplicador; a RTX 5080 suporta geração de múltiplos quadros), com **Reflex** (exigido
+   pela geração de quadros para manter a latência). FSR fica como alternativa para GPUs que não
+   são NVIDIA.
+2. A integração é **nativa no renderer** (como o `bbport_dlss.dll`), não por injeção ReShade.
+   O caminho por add-on fica só como referência: depende de cópias Vulkan→D3D12 por quadro e é
+   o que travou aqui.
+3. **Quando:** a implementação continua na Fase 7 (não se otimiza algo que ainda não
+   funciona, PLAN.md §0). Mas as **entradas** que o DLSS exige passam a ser trabalho da Fase 4:
+   identificar no quadro do jogo a cor antes da interface, a profundidade, os vetores de
+   movimento, o jitter, as matrizes de câmera e a separação da interface, e registrar em
+   `docs/GPU_NOTES.md` §"Entradas temporais". Um protótipo de DLSS SR no fork pode começar após
+   o M4.3, se as entradas estiverem identificadas.
+4. Pontos a verificar antes de implementar (não assumir):
+   - em quais APIs o DLSS 5 roda (o add-on de terceiros usa D3D12; o renderer do KytyPS5 é
+     Vulkan) e como ele é distribuído (SDK NGX/Streamline, versão das DLLs);
+   - suporte da geração de quadros DLSS em Vulkan pelo Streamline/NGX, e a extensão de baixa
+     latência (`VK_NV_low_latency2`) para o Reflex;
+   - licença de redistribuição das DLLs da NVIDIA (o bbport-windows inclui
+     `licenses/NVIDIA-DLSS-LICENSE.txt`) e compatibilidade com o projeto GPL-2.0-only:
+     as DLLs ficam como componentes separados, carregados em tempo de execução, nunca no git.
+
+**Consequências.** A Fase 4 ganha uma tarefa e um marco (entradas temporais catalogadas). A
+geração de quadros exige que a apresentação do KytyPS5 (`src/graphics/presentation/`) aceite
+quadros intercalados e controle o ritmo de exibição; isso deve ser considerado ao mexer no
+`videoOut` nas Fases 3–4. Vantagem esperada sobre o Bloodborne: o Demon's Souls de PS5 é de
+2020 e usa reconstrução temporal, então é provável que já gere vetores de movimento e jitter
+(a confirmar na Fase 4), enquanto o bbport precisou calculá-los à mão.

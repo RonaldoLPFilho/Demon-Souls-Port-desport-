@@ -34,6 +34,11 @@ Por isso o plano tem duas trilhas em sequência:
 
 Fazer a Trilha B antes da A seria otimizar algo que ainda não funciona. Não inverta.
 
+**Requisito do produto final (ADR-004):** assim como o bbport-windows, o desport terá
+**DLSS** (Super Resolution/DLAA, na versão mais recente, incluindo **DLSS 5**) e **geração de
+quadros DLSS** com Reflex; FSR como alternativa fora da NVIDIA. Implementação na Fase 7; as
+entradas que o DLSS exige são identificadas já na Fase 4.
+
 **Estimativa honesta:** a Fase 0–1 leva dias; a Fase 3 leva semanas; a Fase 4 (gráficos) é
 a mais longa e incerta, com meses; o total até jogável é medido em meses de trabalho
 consistente. Cada fase tem critério de saída mensurável para não haver dúvida de onde se está.
@@ -417,6 +422,14 @@ Ordem de ataque:
 6. Compute: o jogo certamente usa compute para efeitos e pós-processamento.
 7. Cada efeito com problema vira uma entrada em `docs/GPU_NOTES.md` com captura RenderDoc
    (`--rd`), o draw/dispatch responsável e a hipótese.
+8. **Entradas temporais para DLSS/geração de quadros (ADR-004).** Com uma captura RenderDoc
+   do 1-1, localizar e registrar em `docs/GPU_NOTES.md` §"Entradas temporais": o render target
+   de cor da cena antes da interface (formato, resolução, HDR ou não), a profundidade (formato,
+   invertida ou não), os vetores de movimento do próprio jogo (se existem, formato, escala,
+   sinal, se cobrem objetos animados), o jitter subpixel e onde ele é aplicado, as matrizes de
+   câmera (atual e anterior), o passe de TAA/reconstrução do jogo (que o DLSS substituirá) e os
+   passes de interface (para separar o HUD na geração de quadros). Onde algo faltar, anotar
+   como será calculado, seguindo `docs/motion_vectors.md` do bbport.
 
 Marcos e critério de saída:
 - M4.1 tela de título correta.
@@ -424,6 +437,8 @@ Marcos e critério de saída:
 - M4.3 tutorial (Boletaria, primeira área) jogável com imagem correta.
 - M4.4 Nexus correto.
 - M4.5 30 minutos contínuos no 1-1 sem crash e sem artefato grave.
+- M4.6 entradas temporais catalogadas (tarefa 8), com captura de referência e a decisão do
+  que é aproveitado do jogo e do que precisa ser calculado.
 
 ---
 
@@ -489,9 +504,23 @@ Tarefas:
 1. Perfil de CPU e GPU (`--profile`, Tracy se disponível). Medir antes de otimizar.
 2. Pipeline de GPU em mais de um thread, se o thread de comandos for o gargalo, seguindo
    `docs/parallel_gpu.md` do bbport.
-3. Upscaling: DLSS (a máquina tem RTX 5080; o bbport-windows já integra DLSS via
-   `bbport_dlss.dll`) e FSR. Exige vetores de movimento: verificar se o jogo já gera
-   (provável num jogo de 2020 com TAA, ao contrário do Bloodborne) antes de calcular à mão.
+3. **DLSS e geração de quadros (requisito, ADR-004).** Integração nativa no renderer, no
+   modelo do `bbport_dlss.dll` do bbport-windows (não por injeção ReShade):
+   - DLSS Super Resolution e DLAA na versão mais recente disponível, **incluindo DLSS 5**;
+     presets selecionáveis; a resolução interna da cena muda e a interface continua na
+     resolução de saída.
+   - **Geração de quadros DLSS** com multiplicador (geração de múltiplos quadros na RTX 5080),
+     opção de ajustar à taxa do monitor, e **Reflex** ligado sempre que a geração estiver ativa.
+     A apresentação (`videoOut`) precisa intercalar os quadros gerados e controlar o ritmo.
+   - FSR 3.1/4 como alternativa fora da NVIDIA (mesmas entradas).
+   - Entradas vindas da Fase 4 (M4.6). Configuração no ini do desport com as mesmas chaves do
+     bbport-windows (`upscaler`, `preset`, `frame_gen`, `frame_gen_multiplier`,
+     `frame_gen_fit_display`).
+   - Antes de começar, verificar e registrar em ADR: APIs suportadas pelo DLSS 5 (Vulkan ×
+     D3D12), suporte da geração de quadros em Vulkan via Streamline/NGX, e a licença de
+     redistribuição das DLLs da NVIDIA (componentes separados, nunca no git).
+   - Critério: DLSS SR, DLAA e geração de quadros funcionando no 1-1 e no Nexus, sem artefatos
+     graves de HUD ou de objetos em movimento, com FPS e latência medidos com e sem cada opção.
 4. Desbloqueio de FPS acima de 60 via patch, verificando lógica de jogo amarrada a frame.
 5. Launcher e empacotamento Windows (referência: `D:\games\bbport-windows`), com checagem
    de versão do jogo, CPU e GPU na abertura, como o bbport faz.
@@ -593,6 +622,8 @@ reduz o trabalho de rebase. Regras do próprio KytyPS5 que precisam ser seguidas
 | Sem console para referência visual | Bugs gráficos sutis passam | Screenshots/vídeos do Ronaldo no PS5 nos mesmos pontos |
 | Bugs de sincronização intermitentes | Crashes após muitos minutos | `soak.ps1` desde a Fase 4; logs de fences/rótulos |
 | Questões legais | Projeto derrubado | §1.1 sem exceções; nada do jogo no repositório |
+| DLSS 5 / geração de quadros podem não ter caminho Vulkan direto (o add-on de terceiros do bbport-windows usa D3D12 e travou nesta máquina) | Requisito do ADR-004 mais caro | Verificar o SDK antes da Fase 7; se preciso, ponte Vulkan↔D3D12 própria com imagens compartilhadas, medida e testada; DLSS SR/geração de quadros nas versões com Vulkan como piso |
+| Interface misturada à cena no quadro do jogo | Artefatos no HUD com geração de quadros | Separar os passes de interface na Fase 4 (M4.6), como o bbport faz com o UI em resolução de saída |
 
 ---
 
