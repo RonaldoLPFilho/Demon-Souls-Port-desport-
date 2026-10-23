@@ -290,3 +290,45 @@ de chamadas que alimente a Fase 6 e marcos automáticos no log, com mudança mí
 de uma partida completa vira a lista do runtime mínimo da Fase 6. Só slots PLT são contados:
 ponteiros de função obtidos por `GLOB_DAT` (que podem ser comparados por identidade) ficam como
 estão.
+
+---
+
+## ADR-003 — Portão da Fase 2: estimativa e estratégia (2026-10-23)
+
+**Status:** proposto, aguardando decisão do Ronaldo (PLAN.md §6, portão da Fase 2).
+
+**Fatos novos (contrariam a premissa do §0 de que o KytyPS5 "ainda não roda" o jogo):**
+- O README do KytyPS5 (commit `9dcff95`) mostra o Demon's Souls **em gameplay** no 1-1
+  ("Outpost Passage", `docs/screenshots/ps5-02.png`), com HUD e iluminação aparentemente corretos.
+- A issue upstream #890 (aberta em 28/09/2026, ainda aberta) relata o jogo chegando à **criação de
+  personagem** com 0–1 FPS (≈30 FPS com o teclado na tela) no build `22ff469` (28/09). Sem versão
+  do jogo nem hardware informados.
+- Nesta máquina, com `9dcff95` e a versão EUR 01.007.000, o jogo para em 3–7 s no `EXIT` de
+  `descriptors.cpp:969` ("scalar resource reads overlap a shader buffer write").
+- Esse bloco de checagens entrou no upstream **depois** do build da issue: `6409be28`
+  (01/10/2026, "shader: respect branch reachability when refreshing scalar resources"), ajustado em
+  `e5dcfdb8` (05/10, #1066). `22ff469` é ancestral de `9dcff95`.
+- Hipótese principal: **regressão do upstream para este jogo** (a checagem é conservadora e o jogo
+  dispara). Alternativas ainda não descartadas: diferença de versão do jogo, GPU NVIDIA.
+- Um experimento local (trocar os `EXIT` do bloco por aviso num build separado, sem commit) foi
+  bloqueado pelo classificador de segurança do modo automático e desfeito; depende de autorização
+  do Ronaldo.
+
+**Estimativa revisada (incerta, a confirmar com a bissecção):**
+- Fase 3 (sistema até a tela de título): se for regressão, **dias** — achar o commit, entender a
+  checagem e corrigir a colisão de fato (ou provar que é falso positivo), com patch para o upstream.
+  Os 160 imports ausentes não são chamados até onde o jogo chega; os stubs usados são benignos.
+- Fase 4 (gráficos até o jogo): continua a mais longa, mas parte de um ponto muito melhor que o
+  previsto: o upstream já desenha o 1-1. O trabalho real tende a ser desempenho (0–1 FPS na criação
+  de personagem relatado), correção de efeitos e estabilidade, não "fazer aparecer imagem".
+- Fase 5 em diante: sem mudança.
+
+**Proposta de decisão.**
+1. Manter "fork primeiro, port depois", mas **colado no upstream**: rebases frequentes e correções
+   gerais preparadas como PR (escritas e enviadas pelo Ronaldo, §11), já que o upstream está ativo
+   neste jogo.
+2. Primeiro passo da Fase 3: **bissecção** entre `22ff469` e `9dcff95` com o cenário `boot` (builds
+   de commits do próprio upstream, sem alterar código), para confirmar o commit que quebra o jogo
+   nesta máquina; em paralelo, o experimento de checagem desativada, se autorizado.
+3. Resultado vira (a) `docs/upstream/<nome>.md` com evidência para o Ronaldo abrir a issue/PR e
+   (b) correção no fork marcada `desport:` até o upstream incorporar.

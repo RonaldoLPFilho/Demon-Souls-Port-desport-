@@ -252,6 +252,8 @@
   conhecidos (não bloqueiam a linha de base).
 
 ## Próximo passo concreto
-1. Agente: commit do engine (branch `desport`) e do desport.
-2. Portão de decisão da Fase 2 (ADR-003): estimativa das Fases 3 e 4 e confirmação da
-   estratégia "fork primeiro, port depois", com o Ronaldo.
+1. Ronaldo: decidir o portão da Fase 2 (ADR-003 proposto): estratégia colada no upstream e
+   bissecção `22ff469..9dcff95` como primeiro passo da Fase 3.
+2. Ronaldo: como tratar o hook de clang-format nos arquivos do upstream (ver commit pendente do
+   engine) e se o experimento de desativar a checagem pode rodar.
+3. Agente: commit do engine (branch `desport`), ponteiro do submódulo no desport, push.
