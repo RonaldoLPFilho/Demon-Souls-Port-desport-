@@ -120,6 +120,8 @@ $Experiments = [ordered]@{
     DUQ = @{ Desc = 'DLSS quality com upscale real (render 1704x960 -> 2560x1440), vblank 120'; Env = [ordered]@{ KYTY_DLSS = 'quality'; KYTY_DLSS_UPSCALE = '1'; KYTY_ULTRAWIDE = '2560x1440'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native' }; Vblank = '120' }
     DUP = @{ Desc = 'DLSS performance com upscale real (render 1280x720 -> 2560x1440), vblank 120'; Env = [ordered]@{ KYTY_DLSS = 'performance'; KYTY_DLSS_UPSCALE = '1'; KYTY_ULTRAWIDE = '2560x1440'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native' }; Vblank = '120' }
     DUQW = @{ Desc = 'DUQ + W1, vblank 120'; Env = [ordered]@{ KYTY_DLSS = 'quality'; KYTY_DLSS_UPSCALE = '1'; KYTY_ULTRAWIDE = '2560x1440'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native'; KYTY_WAVE64_MODE = '1' }; Vblank = '120' }
+    DU2Q = @{ Desc = 'DLSS quality, UPSCALE=2 (reconstrução até a saída), vblank 120'; Env = [ordered]@{ KYTY_DLSS = 'quality'; KYTY_DLSS_UPSCALE = '2'; KYTY_ULTRAWIDE = '2560x1440'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native' }; Vblank = '120' }
+    DU2P = @{ Desc = 'DLSS performance, UPSCALE=2, vblank 120'; Env = [ordered]@{ KYTY_DLSS = 'performance'; KYTY_DLSS_UPSCALE = '2'; KYTY_ULTRAWIDE = '2560x1440'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native' }; Vblank = '120' }
     FPS  = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=0 (sem teto), SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '0' }; Vblank = '60'; Probe = $true }
     FPS60 = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=60, SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '60' }; Vblank = '60'; Probe = $true }
 }
