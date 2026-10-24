@@ -79,3 +79,20 @@ Cada correção (PLAN.md §1.2 regra 7) entra aqui antes do commit, no formato:
   leituras 217 → 139 (68 → 58 ms), bytes baixados 0,9 → 12 MB por quadro; **fps 4,50 → 4,64**.
   O quadro continua dominado pela avaliação de recursos (~110 ms). Imagem sem anomalia relatada.
 - Candidato a upstream: sim (PR pequeno, com a chave e os números); a janela pode ser ajustada.
+
+## FIX-005 — Jogo congela com a janela minimizada, coberta ou sem foco (S-001) (2026-10-23)
+- Fase / área: 5 (estabilidade) / apresentação (`engine/src/graphics/presentation/window/*`).
+- Sintoma: congelamento de 30,25 s (soak `20261023-213716-soak-10m-1`, 1 perda de foco) e de ~200 s
+  (`20261023-215258-soak-30m-1`, 117 falhas de foco), com a thread de renderização ociosa; volta a 60 fps
+  quando a janela reaparece.
+- Causa: o flip só é aposentado depois de um present bem-sucedido, na thread de vblank
+  (`videoOut.cpp` PresentThread → `FlipQueue::Flip` → `Presenter::Present`); com a janela minimizada ou
+  coberta o driver bloqueia acquire/present, o vblank para, a fila de flips enche e o jogo espera. O engine
+  não tratava janela minimizada (só logava os eventos).
+- Mudança (branch `desport-s001`, `8c950579`, em `desport-int`): estado `minimized`/`surface_dirty` da
+  janela; com a janela minimizada o flip é aposentado sem acquire/present; recriação do swapchain ao
+  restaurar e nunca com extensão 0x0; acquire com tempo limite de 100 ms (`KYTY_ACQUIRE_TIMEOUT_MS`) que
+  descarta o quadro em vez de bloquear; logs `DES_WINDOW`. Marcado `// desport: S-001`.
+- Verificação: `tools/window-test.ps1` em `captures/runs/20261023-224236-int-window`: 60 fps nas fases
+  minimizada (20 s), 20 ciclos minimizar/restaurar e coberta; pior quadro 464 ms ao restaurar. Veredito ok.
+- Candidato a upstream: sim.
