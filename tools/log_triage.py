@@ -35,6 +35,7 @@ MILESTONE_RE = re.compile(r'^DES_MILESTONE (\S+) t=(\d+)(?: (.*))?$')
 FPS_RE = re.compile(r'^DES_FPS t=(\d+) fps=([\d.]+)$')
 SLOW_CALL_RE = re.compile(r'^DES_SLOW (.*)$')
 MEM_RE = re.compile(r'^DES_MEM t=(\d+) name=(\S+) bytes=(\d+) count=(\d+)$')
+CRASH_RE = re.compile(r'^DES_CRASH (.*)$')
 STATS_RE = re.compile(r'^(DES_COUNTERS|DES_STAT|DES_STAT_ADDR) (.*)$')
 LOADING_RE = re.compile(r'^Loading: (.+)$')
 BASE_RE = re.compile(r'^base_vaddr\s*=\s*0x([0-9a-fA-F]+)')
@@ -51,10 +52,21 @@ def normalize(line):
     return re.sub(r'\d+', 'N', line).strip()
 
 
+def parse_crash(text):
+    """DES_CRASH: pares chave=valor separados por espaço; message="..." vai até o fim da linha."""
+    message = ''
+    if ' message="' in text:
+        text, message = text.split(' message="', 1)
+        message = message.rstrip().rstrip('"')
+    fields = dict(kv.split('=', 1) for kv in text.split() if '=' in kv)
+    fields['message'] = message
+    return fields
+
+
 def parse_log(path):
     text = path.read_text(encoding='utf-8', errors='replace')
     lines = text.splitlines()
-    report = dict(lines=len(lines), milestones=[], fps=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], modules=[], error=None, host_exception=None,
+    report = dict(lines=len(lines), milestones=[], fps=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], crashes=[], modules=[], error=None, host_exception=None,
                   stub_calls={}, stubbed_at_link=0, vulkan={}, warnings={})
     pending_module = None
     for i, line in enumerate(lines):
@@ -64,6 +76,8 @@ def parse_log(path):
             report['fps'].append((int(m.group(1)), float(m.group(2))))
         elif m := SLOW_CALL_RE.match(line):
             report['slow_calls'].append(dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv))
+        elif m := CRASH_RE.match(line):
+            report['crashes'].append(parse_crash(m.group(1)))
         elif m := MEM_RE.match(line):
             report['mem_samples'].append((int(m.group(1)), m.group(2), int(m.group(3)), int(m.group(4))))
         elif m := STATS_RE.match(line):
@@ -246,12 +260,13 @@ def triage(target):
         seen = {m['name'] for m in report['milestones']}
         report['milestones'] += [m for m in extra['milestones'] if m['name'] not in seen]
         report['milestones'].sort(key=lambda m: m['t_ms'])
-        for key in ('fps', 'slow_calls', 'counters', 'stats', 'stat_addrs', 'mem_samples'):
+        for key in ('fps', 'slow_calls', 'counters', 'stats', 'stat_addrs', 'mem_samples', 'crashes'):
             if not report[key]:
                 report[key] = extra[key]
     report['run'] = run
     report['memory'] = memory_summary(run_dir / 'memory.csv')
     report['mem_categories'] = mem_by_category(report['mem_samples'])
+    report['dumps'] = sorted(p.name for p in run_dir.glob('*.dmp'))
     report['calls'] = calls_summary(run_dir / 'calls.json')
     report['game_log'] = game_log_summary(run_dir)
     report['hitches'] = hitch_summary(run_dir)
@@ -450,6 +465,17 @@ def render(report):
     else:
         L.append('- Sem memory.csv.')
     L.append('')
+    if report.get('crashes') or report.get('dumps'):
+        L.append('## Crash (DES_CRASH)\n')
+        for c in report.get('crashes') or []:
+            L.append(f"- **{c.get('kind', '?')}** t={c.get('t')} ms, código {c.get('code')}, pc {c.get('pc')} "
+                     f"(`{c.get('module')}`), thread {c.get('thread')} {c.get('name') or ''}".rstrip()
+                     + f", dump `{c.get('dump')}`")
+            if c.get('message'):
+                L.append(f"  - {c['message']}")
+        if report.get('dumps'):
+            L.append('- Minidumps na pasta da execução: ' + ', '.join(f'`{d}`' for d in report['dumps']))
+        L.append('')
     cats = report.get('mem_categories')
     if cats:
         L.append('## Memória por categoria (DES_MEM)\n')

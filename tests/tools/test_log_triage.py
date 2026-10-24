@@ -210,6 +210,31 @@ class TriageTests(unittest.TestCase):
         self.assertIsNone(cats['a']['slope_mb_per_min'])
         self.assertAlmostEqual(cats['a']['peak_mb'], 2.0)
 
+    def test_crash_section(self):
+        line = ('DES_CRASH t=91234 kind=exception code=0xc0000005 pc=0x7ff612345678 module=kyty_emulator.exe+0x1a2b '
+                'thread=4242 name=Render dump=crash-20261024-101500-777.dmp message="Unhandled host exception: type=1 in x.cpp:9"')
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'stdout.txt').write_text(line + '\n', encoding='utf-8')
+            (run / 'crash-20261024-101500-777.dmp').write_bytes(b'MDMP')
+            report, _ = log_triage.triage(run)
+            self.assertEqual(len(report['crashes']), 1)
+            crash = report['crashes'][0]
+            self.assertEqual((crash['kind'], crash['code'], crash['thread'], crash['name']),
+                             ('exception', '0xc0000005', '4242', 'Render'))
+            self.assertEqual(crash['message'], 'Unhandled host exception: type=1 in x.cpp:9')
+            self.assertEqual(report['dumps'], ['crash-20261024-101500-777.dmp'])
+            text = log_triage.render(report)
+            self.assertIn('## Crash (DES_CRASH)', text)
+            self.assertIn('**exception** t=91234 ms', text)
+            self.assertIn('Minidumps na pasta da execução: `crash-20261024-101500-777.dmp`', text)
+
+    def test_no_crash_section_without_crash(self):
+        with tempfile.TemporaryDirectory() as root:
+            report, _ = log_triage.triage(make_run(root))
+            self.assertEqual((report['crashes'], report['dumps']), ([], []))
+            self.assertNotIn('DES_CRASH', log_triage.render(report))
+
     def test_no_mem_section_without_des_mem(self):
         with tempfile.TemporaryDirectory() as root:
             report, _ = log_triage.triage(make_run(root))
