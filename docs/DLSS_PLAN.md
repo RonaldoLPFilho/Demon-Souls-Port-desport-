@@ -64,3 +64,12 @@ objetos em movimento, com fps e latência medidos com e sem cada opção.
   de `RenderSizeFor` elevado).
 - **Falta a captura de quadro** (`KYTY_LIVE_FILE` + `capture <dir> 2`, sem lista de hashes) para fixar os
   slots de cor de entrada, histórico e saída do TAA e o formato da cor; duas rodadas (1440 e 1080).
+
+## Ultrawide (2026-10-23)
+- `KYTY_ULTRAWIDE=<LxA>|<W:H>|<proporção>` (branch `desport-uw`): grava o float da constante 16/9 do setup
+  de render (assinatura `c7 43 04 39 8e e3 3f`, única no eboot 01.007.000). Campo de visão mais largo, buffers
+  continuam 16:9 (anamórfico) e a janela estica: HUD, menus e vídeos ficam esticados.
+- HUD em 16:9 (estudo, a validar com captura): comprimir horizontalmente (k = (16/9)/proporção) o viewport e
+  o scissor das draws de UI no target de saída depois do upscale (`renderDraw.cpp`), com `KYTY_UI_SQUEEZE`;
+  marcadores de mundo e passes de tela cheia ficam fora. Captura necessária: HUD no mundo, menu de pausa,
+  título, cutscene (draws no target 3840x2160, viewport/scissor, passes de tela cheia, caminho do Bink).

@@ -19,8 +19,9 @@
 
     Variáveis aplicadas: KYTY_DLSS e KYTY_DLSS_PRESET (só com DLSS ligado e preset não padrão),
     KYTY_FRAMEGEN=<quadros gerados por quadro renderizado: 2x=1, 3x=2, 4x=3>, KYTY_RENDER_HEIGHT,
-    KYTY_PRESENT_ASPECT=fit (16:9 com barras), o patch de memória do ultrawide (--game-patch, só 01.007.000:
-    a proporção da resolução escolhida no setup de render, imagem esticada na janela), --vblank-frequency 120 (fps até 120), --fullscreen,
+    KYTY_PRESENT_ASPECT=fit (16:9 com barras), KYTY_ULTRAWIDE=<largura>x<altura> (a proporção da resolução escolhida
+    no setup de render, só 01.007.000, imagem esticada na janela; -LegacyPatch usa o patch --game-patch temporário,
+    para engines sem a variável), --vblank-frequency 120 (fps até 120), --fullscreen,
     --screen-width/--screen-height e --console-language.
 
     -DryRun não cria janela nenhuma: imprime o JSON de lançamento montado e a linha de comando.
@@ -43,7 +44,9 @@ param(
     # Configuração base de lançamento (padrão game/config/fg-launch.json).
     [string]$BaseLaunch = '',
     # Script de pré-compilação dos shaders (padrão build/fg/precompile-windows.ps1).
-    [string]$PrecompileScript = ''
+    [string]$PrecompileScript = '',
+    # Ultrawide pelo patch de memória temporário (--game-patch) em vez de KYTY_ULTRAWIDE (engines sem a variável).
+    [switch]$LegacyPatch
 )
 
 Set-Strictmode -Version 2.0
@@ -226,9 +229,14 @@ function Build-Launch($s, [string]$PatchPath = '') {
     $script:aspectNote = $plan.note
     $script:ultrawidePatch = $null
     if ($plan.mode -eq 'fit') { $envVars['KYTY_PRESENT_ASPECT'] = 'fit' } else { $envVars.Remove('KYTY_PRESENT_ASPECT') }
-    if ($plan.mode -eq 'ultrawide' -and $PatchPath) {
-        $script:ultrawidePatch = New-UltrawidePatch $plan.ratio
-        Set-Flag '--game-patch' $PatchPath
+    $envVars.Remove('KYTY_ULTRAWIDE')
+    if ($plan.mode -eq 'ultrawide') {
+        if ($LegacyPatch -and $PatchPath) {
+            $script:ultrawidePatch = New-UltrawidePatch $plan.ratio
+            Set-Flag '--game-patch' $PatchPath
+        } else {
+            $envVars['KYTY_ULTRAWIDE'] = ([string]$s.resolution).Trim().ToLower() # desport: o engine acha a constante 16/9 pelos bytes
+        }
     }
     $rh = [int]$s.renderHeight
     if ($rh -gt 0 -and $rh -ne 1440) { $envVars['KYTY_RENDER_HEIGHT'] = "$rh" } else { $envVars.Remove('KYTY_RENDER_HEIGHT') }
