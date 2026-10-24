@@ -104,6 +104,10 @@ $Experiments = [ordered]@{
     LAT2R = @{ Desc = 'LAT2 + KYTY_READBACK_PREFETCH=2, vblank 120'; Env = [ordered]@{ KYTY_READBACK_LATENCY = '2'; KYTY_READBACK_PREFETCH = '2' }; Vblank = '120' }
     ACQ1 = @{ Desc = 'KYTY_ASYNC_COMPUTE=1 + LATENCY=1 (fila de compute separada), vblank 120'; Env = [ordered]@{ KYTY_ASYNC_COMPUTE = '1'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
     ACQU = @{ Desc = 'ACQ1 + KYTY_ASYNC_COMPUTE_UNSAFE=1 (teto do ganho, pode corromper), vblank 120'; Env = [ordered]@{ KYTY_ASYNC_COMPUTE = '1'; KYTY_ASYNC_COMPUTE_UNSAFE = '1'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
+    FP0 = @{ Desc = 'KYTY_FRAME_PIPELINE=0, vblank 120'; Env = [ordered]@{ KYTY_FRAME_PIPELINE = '0'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
+    DS0 = @{ Desc = 'KYTY_DEFERRED_SUBMIT=0, vblank 120'; Env = [ordered]@{ KYTY_DEFERRED_SUBMIT = '0'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
+    DB32 = @{ Desc = 'KYTY_DISPATCH_BATCH=32, vblank 120'; Env = [ordered]@{ KYTY_DISPATCH_BATCH = '32'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
+    DB512 = @{ Desc = 'KYTY_DISPATCH_BATCH=512, vblank 120'; Env = [ordered]@{ KYTY_DISPATCH_BATCH = '512'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
     FPS  = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=0 (sem teto), SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '0' }; Vblank = '60'; Probe = $true }
     FPS60 = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=60, SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '60' }; Vblank = '60'; Probe = $true }
 }
