@@ -55,7 +55,7 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
 ## Desempenho (2026-10-23, análise em `captures/perf-analysis-20261023.md`)
 - Vblank 120: média de 68 fps, p1 de 58. Causa provável do teto: ~80 leituras síncronas por quadro
   (`ReadMemory`, memória escrita pela GPU). A latência sobe de 0,44 para 0,91 ms quando o fps sobe, ou seja,
-  a thread de render serializa. Ponto quente em 0x220a00000–0x220a70000. O agente desport-rb está atacando.
+  a thread de render serializa. Ponto quente em 0x220a00000–0x220a70000. Solução em `desport-rb` (`KYTY_READBACK_PREFETCH=1`, padrão desligado): copia logo depois do escritor os blocos de 64 KiB que o guest lê e serve a leitura desse snapshot. Linha `DES_READBACK` a cada 5 s; validar com `KYTY_READBACK_QUEUE=3` (`READBACK_QUEUE_MISMATCH`). Causa: os rótulos EOP/WRITE_DATA são escritos pela CPU ao processar o pacote, antes de a GPU terminar, então cada leitura faz submit e espera a fila inteira.
 - Travadas: 46 de 51 vêm de compilação de pipeline. O cache estático não cobre tudo e o cache do driver
   estava desligado. Concentradas nos primeiros ~2,5 min de cada área.
 - GPU perto de 20%: o gargalo é CPU.
