@@ -4,6 +4,7 @@ Projeto: port nativo do Demon's Souls de PS5 (PPSA01341, EUR, versão 01.007.000
 (Bloodborne), usando o KytyPS5 como base.
 
 **Antes de qualquer tarefa:** leia `PLAN.md` (plano mestre) e `docs/STATUS.md` (estado atual).
+Subagentes: comecem por `docs/agents/README.md` (regras, base de conhecimento).
 Trabalhe na fase indicada em `docs/STATUS.md`; não pule fases.
 
 Regras que nunca mudam (detalhes em `PLAN.md` §1):

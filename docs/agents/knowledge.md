@@ -1,0 +1,68 @@
+# Base de conhecimento
+
+Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testado no jogo.
+
+## Alvo e máquina
+- Jogo: Demon's Souls PS5, PPSA01341 EUR 01.007.000 (ADR-001). Dump em `C:\games\DemonsSouls-PPSA01341` (só leitura).
+- PC: RTX 5080, Ryzen Zen 5 com 8 núcleos e 16 threads, monitor de 143–144 Hz (Windows informa 143).
+- Meta: estabilidade no nível do bbport (Bloodborne); DLSS 4.5 (DLL 310.x, não DLSS 5); geração de quadros;
+  fps sem teto; ultrawide 3440x1440 nativo; pré-compilação de shaders; launcher no estilo do bbport.
+
+## Engine
+- Base desde o ADR-008: KytyPS5-DemonsSouls-FrameGen v1.3 (ceremony88, GPL-2.0) sobre o upstream `f2455c87`.
+  Fork: `github.com/RonaldoLPFilho/KytyPS5`. Integração: branch `desport-int` (worktree `build/fg-int`).
+- Compilação (só o coordenador; só clang-cl):
+  `$env:KYTY_CMAKE_ARGS='-DDESPORT_GAME_DIR=D:/games/desport/game'; cmd.exe /c "D:\games\desport\build\fg-int\build-windows.cmd"`.
+- Pontos fortes do FrameGen: draws XPR nativos, thread de gravação Vulkan, fila de readback, JIT de SRT,
+  PGO/ThinLTO, ~56 chaves de ambiente em `game/config/fg-launch.json`, cache estático de pipelines
+  (`_PipelineCache\static\PPSA01341_01.007.000.*`, 6,5 GB, ligado por junction em `user/kyty-fg`).
+- Streamline SDK 2.14.1 em `build/fg-port/_Build/deps/streamline/sdk`; `nvngx_dlss` 310.9.1.
+- FFmpeg ligado estático ao exe (prebuilt do shadPS4, série 7.1, LGPL 2.1+).
+
+## Variáveis de ambiente (desport)
+- Medição: `DES_FPS` (sempre ligado, janela de 5 s), `DES_FRAME` (desport-perf; histograma em vblanks,
+  percentis, esperas da thread de render, caches; `DES_FRAME=0` desliga), `DES_STATS=1` (`DES_STAT`,
+  `DES_STAT_ADDR`), `DES_SLOW` (chamada ≥1 s), `DES_MEM`, `DES_CRASH` (`DES_CRASH_DIR`),
+  `KYTY_FAULT_CLASSIFY=1` (`DES_FAULTS`), `KYTY_REDZONE_FAULT_AUDIT=1`.
+- Diagnóstico do FrameGen: `KYTY_HITCH_LOG_MS` (padrão 100 no JSON; linhas `SLOW Frame`),
+  `KYTY_PIPELINE_KEY_LOG` (basta existir; `PIPEKEY` por pipeline fora do cache estático),
+  `KYTY_GPU_WRITE_WATCH=<hexini>-<hexfim>` (sem 0x), `KYTY_SYNC_STACK` (só leituras da thread de GPU).
+- Cache do driver: `KYTY_DRIVER_CACHE_KEY` = exatamente 64 hex minúsculos (sha256 do exe); senão desligado.
+  Fica em `<work_dir>\_PipelineCache\local\<chave>\PPSA01341.bin`. run.ps1 e launcher definem sozinhos.
+  Com a chave, `KYTY_SHADER_WARMUP=1` também passa a agir.
+- Janela e vídeo: `KYTY_ACQUIRE_TIMEOUT_MS`, `KYTY_MOVIE_PACING` (vídeos no ritmo certo com vblank 120).
+- Fps: `KYTY_FPS_LIMIT` (desport-fps): ausente = atual; `0` = sem limite; `<n>` = 20–1000; `display`.
+  Injeta os convars `gameMinDeltaTime=0.001;gameDeltaTimeCorrectionTolorance=0.1` (`KYTY_FPS_GAME_CONVARS`
+  troca; `0` remove). Nunca usar tolerância 0 (o laço do jogo trava).
+- DLSS: `KYTY_DLSS=off|dlaa|quality|balanced|performance|ultra_performance`, `KYTY_DLSS_PRESET`.
+  Com DLSS: present-id ligado e teto de espaço de endereços `0xE000000000` (sem isso, `vkCreateDevice` falha).
+- Ultrawide: `KYTY_ULTRAWIDE=<LxA>`, `KYTY_ULTRAWIDE_RENDER=1`, `KYTY_ULTRAWIDE_HUD=native|16x9`,
+  `KYTY_ULTRAWIDE_MOVIES=pillarbox|stretch`, `KYTY_ULTRAWIDE_HUD_LAYOUT=16x9` (desport-uw2).
+- Geração de quadros: `KYTY_FRAMEGEN=<n>`. O código recusa `KYTY_FRAMEGEN` junto com `KYTY_DLSS` (fase B pendente).
+- Camadas Vulkan de overlay quebram o Streamline: `DISABLE_RTSS_LAYER=1`, `DISABLE_VULKAN_OBS_CAPTURE=1`,
+  `DISABLE_VK_LAYER_VALVE_steam_overlay_1=1`, `EOS_OVERLAY_DISABLE_VULKAN_WIN64=1`.
+- Canal ao vivo: `KYTY_LIVE_FILE` (run.ps1 define; `tools/capture.ps1` escreve comandos de captura).
+
+## Descobertas do jogo
+- Ritmo: o jogo não limita o fps (convar `TargetFramesPerSecond` = 0), mas o passo de tempo tem piso de
+  1/59,94 s (`gameMinDeltaTime=-1` = igual ao esperado). Acima de 60 fps o jogo **acelera** (hipótese forte,
+  leitura estática; o ceremony88 também anota). Física com passo fixo de 60 Hz.
+- TAA: compute shader `0xa44e580f4f0cfb2b`, saída 2560x1440 (= resolução de render). O upscale para 4K é
+  uma passada separada, ainda não localizada (bloqueia o DLSS de upscale real).
+- Layout da UI: função do retângulo localizável pela assinatura `c5 fb 10 4f 04 c5 fa 10 57 14 8b 07 c5 fa 16 c1`.
+
+## Desempenho (2026-10-23, análise em `captures/perf-analysis-20261023.md`)
+- Vblank 120: média de 68 fps, p1 de 58. Causa provável do teto: ~80 leituras síncronas por quadro
+  (`ReadMemory`, memória escrita pela GPU). A latência sobe de 0,44 para 0,91 ms quando o fps sobe, ou seja,
+  a thread de render serializa. Ponto quente em 0x220a00000–0x220a70000. O agente desport-rb está atacando.
+- Travadas: 46 de 51 vêm de compilação de pipeline. O cache estático não cobre tudo e o cache do driver
+  estava desligado. Concentradas nos primeiros ~2,5 min de cada área.
+- GPU perto de 20%: o gargalo é CPU.
+
+## Ferramentas (`tools/`)
+- `run.ps1` (execução instrumentada, `-Launch <json>`, `-Stats`, `-Quiet`, `-DryRun`), `soak.ps1`,
+  `nightly.ps1`, `autopilot.ps1`, `perf-ab.ps1` (experimentos A/B → `captures/perf-ab/`), `capture.ps1` mais
+  `capture_report.py` (captura de quadro e cadeia pós-TAA), `screenshot.ps1`, `launcher.ps1`, `package.ps1`.
+- `log_triage.py`: gera `triage.md` por execução; é a biblioteca de leitura das linhas DES_*.
+  Não duplicar o parser.
+- Saídas derivadas do jogo ficam em `captures/`, `user/` e `out/`, todas fora do git.
