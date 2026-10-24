@@ -6,8 +6,8 @@
 .DESCRIPTION
     Janela WinForms (português do Brasil) na frente de tools/run.ps1, no estilo do launcher do
     bbport. Opções: pasta do jogo (confere eboot.bin e sce_sys\param.json: PPSA01341, versão
-    01.007.000; avisa se for outra), resolução de saída (inclui 3440x1440 ultrawide e "manter 16:9"
-    com barras pretas), tela cheia, idioma do console, fps (60 ou até 120), resolução de render,
+    01.007.000; avisa se for outra), resolução de saída (inclui 3440x1440 ultrawide), proporção (ultrawide
+    nativo, 16:9 com barras pretas ou esticar), tela cheia, idioma do console, fps (60 ou até 120), resolução de render,
     DLSS (modo e preset; padrão DLSS 4.5), geração de quadros (2x/3x/4x) e os botões Jogar,
     Parar, Pré-compilar shaders, Abrir pasta de logs e Restaurar padrões.
 
@@ -19,7 +19,8 @@
 
     Variáveis aplicadas: KYTY_DLSS e KYTY_DLSS_PRESET (só com DLSS ligado e preset não padrão),
     KYTY_FRAMEGEN=<quadros gerados por quadro renderizado: 2x=1, 3x=2, 4x=3>, KYTY_RENDER_HEIGHT,
-    KYTY_PRESENT_ASPECT=fit (manter 16:9), --vblank-frequency 120 (fps até 120), --fullscreen,
+    KYTY_PRESENT_ASPECT=fit (16:9 com barras), o patch de memória do ultrawide (--game-patch, só 01.007.000:
+    a proporção da resolução escolhida no setup de render, imagem esticada na janela), --vblank-frequency 120 (fps até 120), --fullscreen,
     --screen-width/--screen-height e --console-language.
 
     -DryRun não cria janela nenhuma: imprime o JSON de lançamento montado e a linha de comando.
@@ -73,6 +74,11 @@ $Resolutions = @(
     @('3840x2160', '3840 x 2160 (4K)'))
 $RenderHeights = @(
     @(0, 'Padrão do jogo (1440p)'), @(720, '720p'), @(900, '900p'), @(1080, '1080p'), @(2160, '2160p (4K)'))
+$AspectModes = @(
+    @('auto', 'Automática (ultrawide se a tela não for 16:9)'),
+    @('ultrawide', 'Ultrawide nativo (campo de visão mais largo)'),
+    @('fit', '16:9 com barras pretas'),
+    @('stretch', 'Esticar a imagem 16:9'))
 $FpsModes = @(@(60, '60 fps (como no console)'), @(120, 'Até 120 fps'))
 $FrameGenModes = @(@(0, 'Desligada'), @(1, '2x (1 quadro gerado)'), @(2, '3x (2 quadros gerados)'), @(3, '4x (3 quadros gerados)'))
 $DlssModes = @(
@@ -83,7 +89,7 @@ $DlssPresets = @(
 
 function Get-Defaults {
     [ordered]@{
-        game = ''; resolution = '2560x1440'; fullscreen = $false; fit169 = $true; language = 17
+        game = ''; resolution = '2560x1440'; fullscreen = $false; aspect = 'auto'; language = 17
         fps = 60; renderHeight = 0; dlss = 'off'; dlssPreset = 'default'; frameGen = 0; fullLog = $false
     }
 }
@@ -148,10 +154,56 @@ function Test-GameFolder([string]$Path) {
     return [pscustomobject]@{ ok = $true; nivel = 'ok'; msg = "Demon's Souls $title, versão $version (testada)." }
 }
 
+# desport: ultrawide (patch de memória do ceremony88, eboot.bin 01.007.000): a constante 16/9 do setup de render
+# ("mov dword [rbx+4], 16/9", file offset 0x90ae7f) vira largura/altura da resolução escolhida, qualquer proporção. Os
+# buffers continuam 16:9 (3840x2160 de saída, render 16:9): o campo de visão fica mais largo, desenhado de forma
+# anamórfica, e a janela estica a imagem de volta. HUD, menus e vídeos ficam esticados na horizontal.
+$UltrawideOffset = '90ae7f'
+$UltrawideOff    = 'c74304398ee33f' # c7 43 04 + 16/9 como float32
+
+function Get-GameVersion([string]$Path) {
+    $paramPath = Join-Path $Path 'sce_sys\param.json'
+    if (-not $Path -or -not (Test-Path -LiteralPath $paramPath)) { return '' }
+    try {
+        $param = Get-Content -LiteralPath $paramPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($param.PSObject.Properties['contentVersion']) { return [string]$param.contentVersion }
+    } catch {}
+    return ''
+}
+
+# Como a imagem é mostrada: modo efetivo (ultrawide / fit / stretch), proporção da resolução e uma nota.
+function Get-AspectPlan($s) {
+    $parts = ([string]$s.resolution).Trim().ToLower() -split 'x'
+    $ratio = if ($parts.Count -eq 2 -and [double]$parts[1] -gt 0) { [double]$parts[0] / [double]$parts[1] } else { 16.0 / 9.0 }
+    $is169 = [math]::Abs($ratio - 16.0 / 9.0) -lt 0.02
+    $wide = $ratio -ge 1.9
+    $mode = [string]$s.aspect
+    $note = ''
+    if ($mode -eq 'auto') { $mode = if ($is169) { 'stretch' } elseif ($wide) { 'ultrawide' } else { 'fit' } }
+    if ($mode -eq 'ultrawide') {
+        $version = Get-GameVersion ([string]$s.game)
+        if (-not $wide) { $mode = 'fit'; $note = 'Ultrawide pede uma resolução mais larga que 16:9: usando 16:9 com barras.' }
+        elseif ($version -and $version -ne $TestedVersion) { $mode = 'fit'; $note = "Ultrawide só existe para a versão ${TestedVersion} (esta é a ${version}): usando 16:9 com barras." }
+    }
+    return [pscustomobject]@{ mode = $mode; ratio = $ratio; note = $note }
+}
+
+# O patch de memória do ultrawide (formato GoldHEN, o que o --game-patch lê).
+function New-UltrawidePatch([double]$Ratio) {
+    $bytes = [BitConverter]::GetBytes([single]$Ratio)
+    $on = 'c74304' + ([BitConverter]::ToString($bytes).Replace('-', '').ToLower())
+    return [ordered]@{
+        id = $TestedTitle; version = $TestedVersion; process = 'eboot.bin'
+        mods = @([ordered]@{
+            name = ('ultrawide: aspect ratio ' + $Ratio.ToString('0.0000', [cultureinfo]::InvariantCulture) + ' in the render setup (was 16:9)'); enabled = $true
+            memory = @([ordered]@{ offset = $UltrawideOffset; off = $UltrawideOff; on = $on }) })
+    }
+}
+
 # ---------------------------------------------------------------- JSON de lançamento
 
 # Parte de game/config/fg-launch.json e aplica as escolhas (mesmo formato do arquivo base).
-function Build-Launch($s) {
+function Build-Launch($s, [string]$PatchPath = '') {
     $base = Get-Content -LiteralPath $BaseLaunch -Raw -Encoding UTF8 | ConvertFrom-Json
     $envVars = [ordered]@{}
     foreach ($p in $base.environment.PSObject.Properties) { $envVars[$p.Name] = [string]$p.Value }
@@ -169,7 +221,15 @@ function Build-Launch($s) {
     Set-Flag '--screen-height' $Matches[2]
     if ($s.fullscreen -and -not $flags.Contains('--fullscreen')) { $flags.Add('--fullscreen') }
     if (-not $s.fullscreen) { while ($flags.Remove('--fullscreen')) {} }
-    if ($s.fit169) { $envVars['KYTY_PRESENT_ASPECT'] = 'fit' } else { $envVars.Remove('KYTY_PRESENT_ASPECT') }
+    # desport: proporção. fit: barras pretas; ultrawide: patch de memória + imagem esticada na janela; stretch: nada.
+    $plan = Get-AspectPlan $s
+    $script:aspectNote = $plan.note
+    $script:ultrawidePatch = $null
+    if ($plan.mode -eq 'fit') { $envVars['KYTY_PRESENT_ASPECT'] = 'fit' } else { $envVars.Remove('KYTY_PRESENT_ASPECT') }
+    if ($plan.mode -eq 'ultrawide' -and $PatchPath) {
+        $script:ultrawidePatch = New-UltrawidePatch $plan.ratio
+        Set-Flag '--game-patch' $PatchPath
+    }
     $rh = [int]$s.renderHeight
     if ($rh -gt 0 -and $rh -ne 1440) { $envVars['KYTY_RENDER_HEIGHT'] = "$rh" } else { $envVars.Remove('KYTY_RENDER_HEIGHT') }
 
@@ -207,9 +267,15 @@ if ($DryRun) {
     $s = Load-Settings
     $check = Test-GameFolder ([string]$s.game)
     Write-Host "# pasta do jogo: [$($check.nivel)] $($check.msg)"
-    $json = (Build-Launch $s) | ConvertTo-Json -Depth 6
+    $patchTmp = Join-Path ([System.IO.Path]::GetTempPath()) 'desport-ultrawide-<id>.json'
+    $json = (Build-Launch $s $patchTmp) | ConvertTo-Json -Depth 6
+    Write-Host "# proporção: $((Get-AspectPlan $s).mode)$(if ($script:aspectNote) { ' - ' + $script:aspectNote })"
     Write-Host '# JSON de lançamento:'
     Write-Output $json
+    if ($script:ultrawidePatch) {
+        Write-Host "# patch do ultrawide ($patchTmp):"
+        Write-Output ($script:ultrawidePatch | ConvertTo-Json -Depth 8)
+    }
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) 'desport-launch-<id>.json'
     Write-Host '# linha de comando:'
     Write-Host ("powershell.exe " + (Get-RunArguments $tmp $s))
@@ -226,6 +292,9 @@ Add-Type -Namespace DesLauncher -Name Dpi -MemberDefinition '[DllImport("user32.
 $script:s = Load-Settings
 $script:proc = $null
 $script:tmpLaunch = $null
+$script:tmpPatch = $null
+$script:aspectNote = ''
+$script:ultrawidePatch = $null
 $script:ui = @{}
 $script:loading = $true
 $script:gameOk = $false
@@ -267,7 +336,7 @@ function Read-Controls {
     foreach ($r in $Resolutions) { if ($r[1] -eq $text) { $found = $r[0] } }
     $s.resolution = if ($found) { $found } else { $text }
     $s.fullscreen = $u.full.Checked
-    $s.fit169 = $u.fit.Checked
+    $s.aspect = Get-Pair $u.aspect $AspectModes
     $s.language = [math]::Max($u.lang.SelectedIndex, 0)
     $s.fps = Get-Pair $u.fps $FpsModes
     $s.renderHeight = Get-Pair $u.render $RenderHeights
@@ -287,7 +356,7 @@ function Write-Controls {
     foreach ($r in $Resolutions) { if ($r[0] -eq $s.resolution) { $shown = $r[1] } }
     $u.res.Text = if ($shown) { $shown } else { [string]$s.resolution }
     $u.full.Checked = [bool]$s.fullscreen
-    $u.fit.Checked = [bool]$s.fit169
+    Select-Pair $u.aspect $AspectModes $s.aspect
     $u.lang.SelectedIndex = [math]::Min([math]::Max([int]$s.language, 0), $Languages.Count - 1)
     Select-Pair $u.fps $FpsModes $s.fps
     Select-Pair $u.render $RenderHeights $s.renderHeight
@@ -320,7 +389,7 @@ function Update-Enabled {
     $u.stop.Enabled = $running
     $u.precompile.Enabled = ($script:gameOk -and -not $running)
     $u.preset.Enabled = ((Get-Pair $u.dlss $DlssModes) -ne 'off')
-    foreach ($name in 'game', 'browse', 'res', 'full', 'fit', 'lang', 'fps', 'render', 'dlss', 'fg', 'log', 'reset') { $u[$name].Enabled = -not $running }
+    foreach ($name in 'game', 'browse', 'res', 'full', 'aspect', 'lang', 'fps', 'render', 'dlss', 'fg', 'log', 'reset') { $u[$name].Enabled = -not $running }
 }
 
 function Set-Status([string]$text, $color = $null) {
@@ -335,13 +404,18 @@ function Start-Game {
             [void][System.Windows.Forms.MessageBox]::Show('Já há um kyty_emulator rodando. Feche-o antes de jogar.', 'Demon''s Souls', 'OK', 'Warning')
             return
         }
-        $launch = Build-Launch $script:s
-        $script:tmpLaunch = Join-Path ([System.IO.Path]::GetTempPath()) ("desport-launch-{0}.json" -f [guid]::NewGuid().ToString('N'))
+        $id = [guid]::NewGuid().ToString('N')
+        $script:tmpPatch = Join-Path ([System.IO.Path]::GetTempPath()) ("desport-ultrawide-{0}.json" -f $id) # desport: ultrawide
+        $launch = Build-Launch $script:s $script:tmpPatch
+        if ($script:ultrawidePatch) {
+            ($script:ultrawidePatch | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $script:tmpPatch -Encoding UTF8
+        }
+        $script:tmpLaunch = Join-Path ([System.IO.Path]::GetTempPath()) ("desport-launch-{0}.json" -f $id)
         ($launch | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $script:tmpLaunch -Encoding UTF8
         Save-Settings $script:s
         $runArgs = Get-RunArguments $script:tmpLaunch $script:s
         $script:proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $runArgs -WindowStyle Hidden -PassThru
-        Set-Status 'Rodando... (feche o jogo para voltar; as execuções ficam em captures\runs)' ([System.Drawing.Color]::FromArgb(0, 90, 160))
+        Set-Status ('Rodando... (feche o jogo para voltar; as execuções ficam em captures\runs)' + $(if ($script:aspectNote) { "`n" + $script:aspectNote } else { '' })) ([System.Drawing.Color]::FromArgb(0, 90, 160))
         $script:ui.timer.Start()
     } catch {
         Set-Status "Erro ao iniciar: $($_.Exception.Message)" ([System.Drawing.Color]::FromArgb(190, 30, 30))
@@ -403,15 +477,14 @@ $g2.Text = 'Imagem'; $g2.Location = New-Object System.Drawing.Point(12, 100); $g
 $u.res = New-Combo 190 22 250 ($Resolutions) 'DropDown'
 $u.full = New-Object System.Windows.Forms.CheckBox
 $u.full.Text = 'Tela cheia'; $u.full.Location = New-Object System.Drawing.Point(456, 22); $u.full.Size = New-Object System.Drawing.Size(110, 24)
-$u.fit = New-Object System.Windows.Forms.CheckBox
-$u.fit.Text = 'Manter 16:9 (barras pretas em telas mais largas, sem esticar a imagem)'
-$u.fit.Location = New-Object System.Drawing.Point(190, 52); $u.fit.Size = New-Object System.Drawing.Size(376, 24)
+$u.aspect = New-Combo 190 52 376 $AspectModes
 $u.render = New-Combo 190 82 250 $RenderHeights
 $u.lang = New-Object System.Windows.Forms.ComboBox
 $u.lang.Location = New-Object System.Drawing.Point(190, 112); $u.lang.Size = New-Object System.Drawing.Size(250, 24); $u.lang.DropDownStyle = 'DropDownList'
 foreach ($n in $Languages) { [void]$u.lang.Items.Add($n) }
 $g2.Controls.AddRange(@(
-    (New-Label 'Resolução de saída (janela)' 12 22 175), $u.res, $u.full, $u.fit,
+    (New-Label 'Resolução de saída (janela)' 12 22 175), $u.res, $u.full,
+    (New-Label 'Proporção da imagem' 12 52 175), $u.aspect,
     (New-Label 'Resolução de render do 3D' 12 82 175), $u.render,
     (New-Label 'Idioma do console' 12 112 175), $u.lang))
 
@@ -450,7 +523,7 @@ $tip.SetToolTip($u.fps, 'Até 120 fps usa um vblank de 120 Hz; vídeos e cenas a
 $tip.SetToolTip($u.dlss, 'Super-resolução da NVIDIA no lugar do TAA do jogo (RTX 20 ou mais nova).')
 $tip.SetToolTip($u.preset, 'Padrão deixa o engine escolher (DLSS 4.5). J e K são os modelos antigos; L e M, os do DLSS 4.5.')
 $tip.SetToolTip($u.fg, 'Geração de quadros da NVIDIA (DLSS-G): RTX 40 ou mais nova para 2x; 3x e 4x pedem RTX 50.')
-$tip.SetToolTip($u.fit, 'Sem isto, em telas ultrawide a imagem de 16:9 é esticada.')
+$tip.SetToolTip($u.aspect, 'Ultrawide nativo: campo de visão mais largo na proporção da resolução (só versão 01.007.000); HUD, menus e vídeos ficam esticados na horizontal. 16:9 com barras: sem distorção. Automática: ultrawide quando a resolução é mais larga que 16:9.')
 
 # Eventos
 $u.browse.Add_Click({
@@ -482,6 +555,7 @@ $u.timer.Add_Tick({
         if ($code -eq 0) { Set-Status 'O jogo fechou com código 0.' }
         else { Set-Status "O jogo fechou com código $code. Veja o log (Abrir pasta de logs)." ([System.Drawing.Color]::FromArgb(190, 30, 30)) }
         if ($script:tmpLaunch -and (Test-Path -LiteralPath $script:tmpLaunch)) { Remove-Item -LiteralPath $script:tmpLaunch -Force -ErrorAction SilentlyContinue }
+        if ($script:tmpPatch -and (Test-Path -LiteralPath $script:tmpPatch)) { Remove-Item -LiteralPath $script:tmpPatch -Force -ErrorAction SilentlyContinue } # desport: ultrawide
         $script:proc = $null
         Update-Enabled
     }
