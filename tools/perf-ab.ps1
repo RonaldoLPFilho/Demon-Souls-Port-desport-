@@ -115,6 +115,11 @@ $Experiments = [ordered]@{
     R1080 = @{ Desc = 'render 1920x1080 (KYTY_ULTRAWIDE=1920x1080 RENDER=1 HUD=native), vblank 120'; Env = [ordered]@{ KYTY_ULTRAWIDE = '1920x1080'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native'; KYTY_GPU_TIMESTAMPS = '1' }; Vblank = '120' }
     R720 = @{ Desc = 'render 1280x720, vblank 120'; Env = [ordered]@{ KYTY_ULTRAWIDE = '1280x720'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native'; KYTY_GPU_TIMESTAMPS = '1' }; Vblank = '120' }
     PROF = @{ Desc = 'KYTY_GPU_PROFILE=1 + GPU_TIMESTAMPS=1 (perfil por shader), vblank 120'; Env = [ordered]@{ KYTY_GPU_PROFILE = '1'; KYTY_GPU_TIMESTAMPS = '2' }; Vblank = '120' }
+    W1 = @{ Desc = 'KYTY_WAVE64_MODE=1 (metades em lockstep), vblank 120'; Env = [ordered]@{ KYTY_WAVE64_MODE = '1'; KYTY_WAVE64_REPORT = '1' }; Vblank = '120' }
+    W2 = @{ Desc = 'KYTY_WAVE64_MODE=2, vblank 120'; Env = [ordered]@{ KYTY_WAVE64_MODE = '2' }; Vblank = '120' }
+    DUQ = @{ Desc = 'DLSS quality com upscale real (render 1704x960 -> 2560x1440), vblank 120'; Env = [ordered]@{ KYTY_DLSS = 'quality'; KYTY_DLSS_UPSCALE = '1'; KYTY_ULTRAWIDE = '2560x1440'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native' }; Vblank = '120' }
+    DUP = @{ Desc = 'DLSS performance com upscale real (render 1280x720 -> 2560x1440), vblank 120'; Env = [ordered]@{ KYTY_DLSS = 'performance'; KYTY_DLSS_UPSCALE = '1'; KYTY_ULTRAWIDE = '2560x1440'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native' }; Vblank = '120' }
+    DUQW = @{ Desc = 'DUQ + W1, vblank 120'; Env = [ordered]@{ KYTY_DLSS = 'quality'; KYTY_DLSS_UPSCALE = '1'; KYTY_ULTRAWIDE = '2560x1440'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native'; KYTY_WAVE64_MODE = '1' }; Vblank = '120' }
     FPS  = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=0 (sem teto), SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '0' }; Vblank = '60'; Probe = $true }
     FPS60 = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=60, SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '60' }; Vblank = '60'; Probe = $true }
 }
