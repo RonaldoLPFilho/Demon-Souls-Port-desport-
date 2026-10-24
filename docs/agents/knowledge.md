@@ -82,3 +82,13 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
 - `KYTY_FPS_LIMIT` conta sempre flips (quadros renderizados). Só `display` com DLSS-G divide a taxa do monitor por `FrameGen::PresentedFrames()` (desport-next `7358db0d`).
 - C++ gerado por Bash/heredoc já quebrou `\n` dentro de string literal (window.cpp do up4): antes de entregar, rode um varredor de strings sem fechamento.
 - O CMake do engine não usa `-Werror`. Os alvos `add_kyty_full_emulator_test` são EXCLUDE_FROM_ALL; `virtual_memory_allocation_tests` não compila na desport-next (falta `GuestBackingStore::MapFixed`).
+
+## Readback: medições de 2026-10-24 (perf-ab, vblank 120)
+- Base: 68,8 fps, a maioria dos quadros leva 2 vblanks, p50 de 14,5 ms. A thread de render tem ~7 ms ociosos por quadro, então não é ela o gargalo.
+- Prefetch 1 (blocos de 64 KiB): sem ganho, só ~10% de acertos.
+- Prefetch 2 (por faixa, desport-rb2): os acertos sobem muito (hits 8,7 mil e vizinhos 13 mil por 5 s), mas o fps não muda (68,7). Um acerto custa ~12 µs, só que o resto das leituras espera a GPU por ~3 ms. `sync_age` mostra que o guest lê <250 µs depois do label (que a CPU escreve cedo), com a GPU ainda 1–3 ms atrás.
+- Prefetch 3 (devolução antecipada mais flush no EOP): pior (67,7 fps; cpu da render 9,2 ms).
+- Conclusão: o teto de ~70 fps é a latência de ida e volta CPU→GPU→CPU nas ~84 leituras por quadro (resultados de 16 bytes de dispatches pequenos), não a vazão. Próximas ideias: reduzir a latência de submit/execução desses dispatches (fila de compute dedicada, submit imediato só dos dispatches cujo resultado o guest lê, ou executar esses dispatches pequenos na CPU). Padrão: prefetch desligado.
+- Sem limite (vblank 60 + `KYTY_FPS_LIMIT=0`, com a correção do .bk2 ocioso): 71,7 fps, p50 de 13 ms. Limite 60: 59,9. Wave64 e vblank 240: sem diferença. Cache do driver frio: 60 fps nos primeiros minutos; quente: 68.
+- O SpeedProbe (diff de imagem) deu ~44 em todos os modos: não serve para detectar aceleração. Precisa de conferência visual.
+- Boot a frio pode falhar com "could not reserve 13824 MB": falta commit (pagefile de 24 GB, ~38 GB comprometidos com o PC ocioso). O soak espera 15 GB livres.
