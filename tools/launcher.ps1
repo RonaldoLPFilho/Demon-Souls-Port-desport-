@@ -280,14 +280,9 @@ function Get-FpsLimitValue($s) {
         'unlimited' { return '0' }
         'custom' { return "$([math]::Min([math]::Max([int]$s.fpsCustom, 20), 1000))" }
         default {
-            $fg = [int]$s.frameGen
-            if ($fg -le 0) { return 'display' }
-            # Com geração de quadros o monitor mostra renderizados x (1 + gerados): limita os renderizados.
-            $hz = Get-MonitorHz
-            if ($hz -le 0) { $hz = 60; $script:fpsNote = 'Taxa do monitor desconhecida: assumi 60 Hz para o limite com geração de quadros.' }
-            $lim = [math]::Max([int][math]::Floor($hz / (1 + $fg)), 20)
-            if (-not $script:fpsNote) { $script:fpsNote = "Limite de $lim fps renderizados (monitor $hz Hz, geração de quadros com $fg gerado(s) por quadro)." }
-            return "$lim"
+            # Com geração de quadros o engine divide a taxa do monitor pelos quadros apresentados por flip (e acompanha o F2).
+            if ([int]$s.frameGen -gt 0) { $script:fpsNote = 'Taxa do monitor com geração de quadros: o engine limita os renderizados a taxa / quadros apresentados.' }
+            return 'display'
         }
     }
 }
