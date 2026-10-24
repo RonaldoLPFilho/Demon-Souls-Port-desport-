@@ -97,6 +97,15 @@ class TriageTests(unittest.TestCase):
             self.assertIn('3 janelas: mínimo 3.0, mediana 5.0, máximo 40.0', text)
             self.assertIn("0′ 4.0, 1′ 40.0", text)
 
+    def test_slow_calls(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'stdout.txt').write_text('DES_SLOW t=372000 name=net_connect ms=30012 vaddr=0x0\n',
+                                            encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            self.assertEqual(report['slow_calls'][0]['name'], 'net_connect')
+            self.assertIn('| 372000 | net_connect | 30012 | `0x0` |', log_triage.render(report))
+
     def test_des_lines_from_stdout(self):
         with tempfile.TemporaryDirectory() as root:
             run = make_run(root)

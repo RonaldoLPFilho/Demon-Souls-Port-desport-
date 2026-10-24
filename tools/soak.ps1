@@ -62,6 +62,33 @@ for ($i = 0; $i -lt 120 -and -not $runDir; $i++) {
 if (-not $runDir) { Stop-Job $runJob; throw 'run.ps1 não criou a pasta da execução' }
 Write-Host "Execução: $($runDir.FullName)"
 
+# Vigia de congelamento: sem nenhuma linha DES_FPS nova por 10 s com o emulador vivo, amostra as
+# pilhas de todas as threads por 10 s (build/sampler/sampler.exe) em freeze-<s>.json; 60 s de pausa
+# entre amostras. Serve para achar onde um congelamento espera (o primeiro soak teve um de 30 s).
+$sampler = Join-Path $Root 'build/sampler/sampler.exe'
+$watchJob = $null
+if (Test-Path -LiteralPath $sampler) {
+    $watchJob = Start-Job -ScriptBlock {
+        param($stdout, $sampler, $outDir)
+        $lastCount = 0; $lastChange = Get-Date; $cooldownUntil = Get-Date
+        while ($true) {
+            Start-Sleep -Seconds 2
+            if (-not (Get-Process kyty_emulator -ErrorAction SilentlyContinue)) { continue }
+            $count = 0
+            if (Test-Path -LiteralPath $stdout) {
+                $count = @(Select-String -LiteralPath $stdout -Pattern '^DES_FPS ' -ErrorAction SilentlyContinue).Count
+            }
+            if ($count -ne $lastCount) { $lastCount = $count; $lastChange = Get-Date; continue }
+            # Só depois do primeiro DES_FPS (antes disso é o carregamento inicial).
+            if ($count -gt 0 -and ((Get-Date) - $lastChange).TotalSeconds -ge 10 -and (Get-Date) -ge $cooldownUntil) {
+                $name = 'freeze-{0}.json' -f [int]((Get-Date) - (Get-Item -LiteralPath $stdout).CreationTime).TotalSeconds
+                & $sampler --name kyty_emulator.exe --seconds 10 --hz 100 --out (Join-Path $outDir $name) | Out-Null
+                $cooldownUntil = (Get-Date).AddSeconds(60)
+            }
+        }
+    } -ArgumentList (Join-Path $runDir.FullName 'stdout.txt'), $sampler, $runDir.FullName
+}
+
 # 3. Piloto automático.
 $pilotLog = Join-Path $runDir.FullName 'autopilot.txt'
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'autopilot.ps1') `
@@ -71,9 +98,21 @@ $pilotCode = $LASTEXITCODE
 
 # 4. Fim: encerra o emulador se ainda estiver aberto e espera a triagem do run.ps1.
 $crashed = $pilotCode -eq 2
+if ($watchJob) { Stop-Job $watchJob; Remove-Job $watchJob -Force }
 Get-Process kyty_emulator -ErrorAction SilentlyContinue | ForEach-Object { & taskkill.exe /PID $_.Id /T /F 2>&1 | Out-Null }
 Wait-Job $runJob -Timeout 300 | Out-Null
 Remove-Job $runJob -Force
+
+# O encerramento pelo soak (taskkill) aparece como crashed_or_error no run.json: corrige o rótulo.
+$runJson = Join-Path $runDir.FullName 'run.json'
+if (-not $crashed -and (Test-Path -LiteralPath $runJson)) {
+    $run = Get-Content -LiteralPath $runJson -Raw | ConvertFrom-Json
+    if ($run.result -eq 'crashed_or_error') {
+        $run.result = 'stopped_by_soak'
+        $run | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $runJson -Encoding UTF8
+        & python -I (Join-Path $Root 'tools/log_triage.py') $runDir.FullName | Out-Null
+    }
+}
 
 $result = [ordered]@{
     label           = $Label

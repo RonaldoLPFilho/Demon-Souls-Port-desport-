@@ -32,6 +32,7 @@ TOP = 10
 
 MILESTONE_RE = re.compile(r'^DES_MILESTONE (\S+) t=(\d+)(?: (.*))?$')
 FPS_RE = re.compile(r'^DES_FPS t=(\d+) fps=([\d.]+)$')
+SLOW_CALL_RE = re.compile(r'^DES_SLOW (.*)$')
 STATS_RE = re.compile(r'^(DES_COUNTERS|DES_STAT|DES_STAT_ADDR) (.*)$')
 LOADING_RE = re.compile(r'^Loading: (.+)$')
 BASE_RE = re.compile(r'^base_vaddr\s*=\s*0x([0-9a-fA-F]+)')
@@ -51,7 +52,7 @@ def normalize(line):
 def parse_log(path):
     text = path.read_text(encoding='utf-8', errors='replace')
     lines = text.splitlines()
-    report = dict(lines=len(lines), milestones=[], fps=[], counters=[], stats=[], stat_addrs=[], modules=[], error=None, host_exception=None,
+    report = dict(lines=len(lines), milestones=[], fps=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], modules=[], error=None, host_exception=None,
                   stub_calls={}, stubbed_at_link=0, vulkan={}, warnings={})
     pending_module = None
     for i, line in enumerate(lines):
@@ -59,6 +60,8 @@ def parse_log(path):
             report['milestones'].append(dict(name=m.group(1), t_ms=int(m.group(2)), detail=m.group(3) or ''))
         elif m := FPS_RE.match(line):
             report['fps'].append((int(m.group(1)), float(m.group(2))))
+        elif m := SLOW_CALL_RE.match(line):
+            report['slow_calls'].append(dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv))
         elif m := STATS_RE.match(line):
             fields = dict(kv.split('=', 1) for kv in m.group(2).split() if '=' in kv)
             key = {'DES_COUNTERS': 'counters', 'DES_STAT': 'stats', 'DES_STAT_ADDR': 'stat_addrs'}[m.group(1)]
@@ -214,7 +217,7 @@ def triage(target):
         seen = {m['name'] for m in report['milestones']}
         report['milestones'] += [m for m in extra['milestones'] if m['name'] not in seen]
         report['milestones'].sort(key=lambda m: m['t_ms'])
-        for key in ('fps', 'counters', 'stats', 'stat_addrs'):
+        for key in ('fps', 'slow_calls', 'counters', 'stats', 'stat_addrs'):
             if not report[key]:
                 report[key] = extra[key]
     report['run'] = run
@@ -361,6 +364,13 @@ def render(report):
                  f"máximo {values[-1]:.1f}")
         L.append('- Por minuto: ' + ', '.join(
             f"{minute}′ {sum(v) / len(v):.1f}" for minute, v in sorted(_by_minute(report['fps']).items())))
+        L.append('')
+    if report.get('slow_calls'):
+        L.append('## Chamadas acima de 1 s (DES_SLOW)\n')
+        L.append('| t (ms) | Escopo | ms | Endereço |')
+        L.append('|---:|---|---:|---|')
+        L.extend(f"| {s.get('t')} | {s.get('name')} | {s.get('ms')} | `{s.get('vaddr')}` |"
+                 for s in report['slow_calls'][:TOP * 3])
         L.append('')
     hitches = report.get('hitches')
     if hitches:

@@ -19,6 +19,19 @@ v1.3 + camada desport, branch `desport-fg` do fork). Fases 0–2 concluídas; Fa
   o encaixe do `DES_TRACE` na relocação (reescrita por eles) e o `DES_COUNTERS` (não há
   `Common::DebugCounters`; eles têm `live-counters.h`).
 
+## Primeiro soak automático — `captures/runs/20261023-213716-soak-10m-1`
+- `tools/soak.ps1 -Minutes 10`: save de referência, piloto automático até o HUD em 109 s, 10 min de
+  movimento (frente/trás/câmera), log do engine em Silent. **Sem crash.**
+- Pré-compilação estática concluída (56 min; `PPSA01341_01.007.000.binaries` 6,26 GB + `.shaders`
+  211 MB em `build/fg/_PipelineCache/static`, ligado por junction em `user/kyty-fg`).
+- fps: mediana 60; médias por minuto 53–60. Travadas: 56 quadros lentos (44 s) contra 276 (178 s) na
+  sessão sem pré-compilação; as de compilação caíram de 135 s para 11,4 s.
+- **Memória estável**: 12,3–12,8 GB por 8 min de jogo depois de carregar (sem tendência de alta).
+- **Problema aberto S-001:** um congelamento de **30,25 s** aos ~6 min (`DES_FPS` 2,6), com a thread
+  de renderização ociosa (`cpu=22 ms`). Suspeita: espera com tempo limite de 30 s (candidato: conexão
+  de rede bloqueante; `sceHttp` tem `connect_timeout` de 30 s e os sockets são reais). Próximo soak
+  mede `net_connect`/`net_resolve` (`DES_SLOW`) e amostra as pilhas durante qualquer congelamento.
+
 ## Fase 0 — progresso
 
 | # | Tarefa | Estado | Evidência / observação |
