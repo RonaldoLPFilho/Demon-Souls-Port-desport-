@@ -54,6 +54,10 @@ param(
     [switch]$Quiet,
     # Liga os contadores de desempenho no log (DES_STATS=1 -> DES_COUNTERS, DES_STAT, DES_STAT_ADDR).
     [switch]$Stats,
+    # Arquivo de comandos ao vivo do engine (KYTY_LIVE_FILE; tools/capture.ps1 escreve nele). Padrão: <pasta da execução>\live-commands.txt.
+    [string]$LiveFile = '',
+    # Não define KYTY_LIVE_FILE (sem o canal ao vivo).
+    [switch]$NoLive,
     # Monta e grava o comando em run.json sem executar.
     [switch]$DryRun
 )
@@ -256,6 +260,8 @@ Write-Host "Executando ($TimeoutSec s): $($run.command)"
 if ($Stats) { $env:DES_STATS = '1' }
 # Minidump e linha DES_CRASH de um crash real vão para a pasta da execução (engine desport-crash).
 $env:DES_CRASH_DIR = $RunDir
+# Canal ao vivo (capture de quadros, medições): o engine consulta este arquivo a cada 100 ms.
+if (-not $NoLive) { $env:KYTY_LIVE_FILE = $(if ($LiveFile) { $LiveFile } else { Join-Path $RunDir 'live-commands.txt' }) }
 foreach ($k in $launchEnv.Keys) { Set-Item -Path "Env:$k" -Value $launchEnv[$k] }
 if ($Trace) {
     $env:DES_TRACE = '1'
@@ -272,7 +278,7 @@ $proc = Start-Process -FilePath $KytyExe -ArgumentList $argString -WorkingDirect
     -RedirectStandardOutput (Join-Path $RunDir 'stdout.txt') `
     -RedirectStandardError (Join-Path $RunDir 'stderr.txt') -PassThru
 [void]$proc.Handle  # no PowerShell 5.1, sem isso ExitCode fica vazio depois do término
-Remove-Item Env:DES_TRACE, Env:DES_TRACE_FILE, Env:DES_STATS, Env:DES_CRASH_DIR -ErrorAction SilentlyContinue
+Remove-Item Env:DES_TRACE, Env:DES_TRACE_FILE, Env:DES_STATS, Env:DES_CRASH_DIR, Env:KYTY_LIVE_FILE -ErrorAction SilentlyContinue
 foreach ($k in $launchEnv.Keys) { Remove-Item -Path "Env:$k" -ErrorAction SilentlyContinue }
 
 # Memória a cada segundo (PA-001 em docs/STATUS.md): privada e working set do processo principal.
