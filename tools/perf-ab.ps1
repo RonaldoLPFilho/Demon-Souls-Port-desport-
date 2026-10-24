@@ -22,6 +22,8 @@
       RB    base + KYTY_READBACK_PREFETCH=1.
       RBQ   RB + KYTY_READBACK_QUEUE=3 (validação: cada cópia é repetida e comparada; o relatório conta
             READBACK_QUEUE_MISMATCH).
+      RB2   base + KYTY_READBACK_PREFETCH=2 (snapshot por faixa escrita; engine com desport-rb2).
+      RB3   base + KYTY_READBACK_PREFETCH=3 (RB2 + write-back antecipado e submit no ponto de sincronização).
       FPS   vblank 60 + KYTY_FPS_LIMIT=0 (sem teto de vblank), com SpeedProbe.
       FPS60 vblank 60 + KYTY_FPS_LIMIT=60, com SpeedProbe.
     Todos (exceto B, FPS, FPS60) usam vblank 120. SpeedProbe (autopilot -SpeedProbe via soak.ps1) roda em base, FPS e
@@ -47,7 +49,7 @@
 [CmdletBinding()]
 param(
     [int]$Minutes = 6,
-    # Experimentos e ordem (padrão: base,C1,C2,A,B,H,RB,RBQ,FPS,FPS60).
+    # Experimentos e ordem (padrão: base,C1,C2,A,B,H,RB,RBQ,RB2,RB3,FPS,FPS60).
     [string[]]$Only = @(),
     [string]$Launch = 'game/config/fg-launch.json',
     [string]$Save = 'user/saves-backup/kyty-fg-20261023-2050',
@@ -95,6 +97,8 @@ $Experiments = [ordered]@{
     H    = @{ Desc = 'KYTY_COMPUTE_WAVE64=1'; Env = [ordered]@{ KYTY_COMPUTE_WAVE64 = '1' }; Vblank = '120' }
     RB   = @{ Desc = 'KYTY_READBACK_PREFETCH=1, vblank 120'; Env = [ordered]@{ KYTY_READBACK_PREFETCH = '1' }; Vblank = '120' }
     RBQ  = @{ Desc = 'RB + KYTY_READBACK_QUEUE=3 (validação de divergência), vblank 120'; Env = [ordered]@{ KYTY_READBACK_PREFETCH = '1'; KYTY_READBACK_QUEUE = '3' }; Vblank = '120' }
+    RB2  = @{ Desc = 'KYTY_READBACK_PREFETCH=2 (snapshot por faixa), vblank 120'; Env = [ordered]@{ KYTY_READBACK_PREFETCH = '2' }; Vblank = '120' }
+    RB3  = @{ Desc = 'KYTY_READBACK_PREFETCH=3 (faixa + write-back antecipado + submit), vblank 120'; Env = [ordered]@{ KYTY_READBACK_PREFETCH = '3' }; Vblank = '120' }
     FPS  = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=0 (sem teto), SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '0' }; Vblank = '60'; Probe = $true }
     FPS60 = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=60, SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '60' }; Vblank = '60'; Probe = $true }
 }
