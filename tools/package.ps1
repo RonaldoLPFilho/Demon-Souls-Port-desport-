@@ -171,9 +171,94 @@ if (Test-Path -LiteralPath $licenses) {
         Add-File $f.FullName ('LICENSES\' + $f.FullName.Substring($licenses.Length + 1))
     }
     if (-not (Test-Path -LiteralPath (Join-Path $licenses 'third-party'))) {
-        $warnings.Add('LICENSES\third-party não existe na árvore do fork (o THIRD-PARTY-NOTICES cita FFmpeg LGPL etc.): confira antes de distribuir')
+        # desport: o THIRD-PARTY-NOTICES cita third-party\FFmpeg-LGPL-2.1.txt, que o fork não traz; vem do 3rdparty\ffmpeg-core.
+        Add-File (Join-Path $SourceDir '3rdparty\ffmpeg-core\copyright') 'LICENSES\third-party\FFmpeg-LGPL-2.1.txt'
     }
 } else { $errors.Add("ausente: $licenses") }
+
+# licenses\ : textos de licença de cada componente de terceiros + THIRD_PARTY.md (componente, versão, licença, arquivo).
+# Texto que não existir localmente NÃO é inventado: o componente fica "PENDENTE" no THIRD_PARTY.md e vira aviso.
+$sdkBin = $StreamlineDir
+$tp = Join-Path $SourceDir '3rdparty'
+$tpRows = New-Object System.Collections.Generic.List[object]
+function Add-License([string]$Component, [string]$Version, [string]$License, [string]$Source, [string]$DestName, [string]$Note = '') {
+    $file = "licenses\$DestName"
+    if (Test-Path -LiteralPath $Source -PathType Leaf) {
+        $plan.Add([pscustomobject]@{ Kind = 'copy'; Source = $Source; Destination = $file })
+        $tpRows.Add([pscustomobject]@{ C = $Component; V = $Version; L = $License; F = $file.Replace('\', '/'); N = $Note })
+    } else {
+        $warnings.Add("licença PENDENTE (texto não encontrado): $Component ($Source)")
+        $tpRows.Add([pscustomobject]@{ C = $Component; V = $Version; L = $License; F = 'PENDENTE (texto não encontrado localmente)'; N = $Note })
+    }
+}
+Add-License 'KytyPS5 / desport (engine, fork KytyPS5-DemonsSouls-FrameGen)' 'desport-int' 'GPL-2.0-only' (Join-Path $SourceDir 'LICENSE') 'KytyPS5-GPL-2.0.txt' 'Código-fonte: o repositório do fork e do desport; alterações do desport marcadas com // desport:'
+# FFmpeg: prebuilt do shadPS4 (ext-ffmpeg-core commit 94dde08), ligado estaticamente ao kyty_emulator.exe.
+# Build configurado pelo ffmpeg.patch do 3rdparty\ffmpeg-core (sem --enable-gpl/--enable-nonfree) => LGPL 2.1 ou posterior.
+# Versão: libavcodec 61.19.101 / libavformat 61.7.100 / libavutil 59.39.100 (série 7.1 do FFmpeg).
+Add-License 'FFmpeg (libavcodec, libavformat, libavutil, libswscale, libswresample), ligado estaticamente' '7.1.x (libavcodec 61.19.101, libavformat 61.7.100, libavutil 59.39.100; prebuilt shadps4-emu/ext-ffmpeg-core 94dde08)' 'LGPL-2.1-or-later (build sem --enable-gpl/--enable-nonfree)' (Join-Path $tp 'ffmpeg-core\copyright') 'FFmpeg-LGPL-2.1.txt' 'Código-fonte: ver licenses/FFmpeg-SOURCE.txt'
+Add-Generated 'licenses\FFmpeg-SOURCE.txt' ((@'
+FFmpeg - onde obter o codigo-fonte / where to get the source code
+================================================================
+
+O kyty_emulator.exe deste pacote contem FFmpeg (libavcodec, libavformat, libavutil, libswscale, libswresample)
+ligado estaticamente, licenciado sob a LGPL 2.1 ou posterior (texto: FFmpeg-LGPL-2.1.txt). O build foi feito
+sem --enable-gpl e sem --enable-nonfree, so com os decoders/demuxers listados em
+3rdparty/ffmpeg-core/ffmpeg.patch do codigo-fonte do engine. Versao: serie 7.1 do FFmpeg (libavcodec 61.19.101,
+libavformat 61.7.100, libavutil 59.39.100).
+
+Codigo-fonte correspondente (LGPL exige que voce possa obte-lo):
+- FFmpeg (upstream): https://ffmpeg.org/download.html  e  https://git.ffmpeg.org/ffmpeg.git (tag n7.1 ou a 7.1.x correspondente)
+- Receita do build prebuilt (vcpkg + ffmpeg.patch) e binarios:
+  https://github.com/shadps4-emu/ext-ffmpeg-core  (commit 94dde08c8a9e4271a93a2a7e4159e9fb05d30c0a)
+- Codigo-fonte do engine (KytyPS5-DemonsSouls-FrameGen, GPL-2.0, com as alteracoes do desport), incluindo o
+  script de build: pode ser pedido ao distribuidor deste pacote.
+
+Para usar outra versao do FFmpeg, recompile o engine a partir do codigo-fonte acima trocando o prebuilt de
+3rdparty/ffmpeg-core (o link estatico permite isso ao reconstruir; a LGPL 2.1 secao 6 garante esse direito).
+Este pacote nao e afiliado ao projeto FFmpeg.
+
+The kyty_emulator.exe in this package statically links FFmpeg (libavcodec, libavformat, libavutil, libswscale,
+libswresample), licensed under LGPL 2.1 or later (FFmpeg-LGPL-2.1.txt), built without --enable-gpl and
+--enable-nonfree. Corresponding source: see the URLs above. To use a modified FFmpeg, rebuild the engine from
+source with it in place of the prebuilt in 3rdparty/ffmpeg-core.
+'@ -replace "`r?`n", "`r`n"))
+$tpRows.Add([pscustomobject]@{ C = 'FFmpeg - aviso de codigo-fonte'; V = ''; L = 'LGPL-2.1-or-later'; F = 'licenses/FFmpeg-SOURCE.txt'; N = '' })
+# NVIDIA: Streamline (MIT) e termos do DLSS/NGX SDK.
+Add-License 'NVIDIA Streamline SDK (sl.interposer, sl.common, sl.dlss, sl.dlss_g, sl.reflex, sl.pcl)' '2.14.1' 'MIT (NVIDIA); partes sob Nsight Perf SDK License' (Join-Path $sdkRoot 'license.txt') 'Streamline-license.txt'
+Add-License 'Streamline - licencas de terceiros' '2.14.1' 'varias (ver arquivo)' (Join-Path $sdkRoot '3rd-party-licenses.md') 'Streamline-3rd-party-licenses.md'
+Add-License 'NVIDIA DLSS / NGX SDK (nvngx_dlss.dll, nvngx_dlssg.dll)' 'incluido no Streamline 2.14.1' 'NVIDIA RTX SDKs LICENSE (proprietaria; redistribuicao permitida nos termos dela)' (Join-Path $sdkRoot 'external\ngx-sdk\license.txt') 'NVIDIA-RTX-SDKs-LICENSE-DLSS.txt'
+Add-License 'nvngx_dlss.dll' '' 'NVIDIA (licenca do binario)' (Join-Path $sdkBin 'nvngx_dlss.license.txt') 'nvngx_dlss.license.txt'
+Add-License 'NVIDIA Reflex (sl.reflex, sl.pcl, NvLowLatencyVk.dll)' '' 'NVIDIA (licenca do binario)' (Join-Path $sdkBin 'reflex.license.txt') 'reflex.license.txt' 'NvLowLatencyVk.dll e nvngx_dlssg.dll nao tem arquivo de licenca proprio no SDK; confira o enquadramento nos termos NVIDIA RTX SDKs antes de distribuir'
+Add-License 'NVIDIA Image Scaling (sl.nis; so se o pacote incluir)' '' 'NVIDIA (licenca do binario)' (Join-Path $sdkBin 'nis.license.txt') 'nis.license.txt'
+Add-License 'nlohmann/json (usado pelo Streamline)' '' 'MIT' (Join-Path $sdkRoot 'external\json\LICENSE.MIT') 'nlohmann-json-MIT.txt'
+# Bibliotecas ligadas estaticamente ao engine (3rdparty do fork)
+Add-License 'SDL2' '2.x (3rdparty\SDL2)' 'zlib' (Join-Path $tp 'SDL2\LICENSE.txt') 'SDL2-zlib.txt'
+Add-License 'Dear ImGui' '' 'MIT' (Join-Path $tp 'imgui\LICENSE.txt') 'imgui-MIT.txt'
+Add-License 'fmt' '' 'MIT' (Join-Path $tp 'fmt\LICENSE') 'fmt-MIT.txt'
+Add-License 'spdlog' '' 'MIT' (Join-Path $tp 'spdlog\LICENSE') 'spdlog-MIT.txt'
+Add-License 'magic_enum' '' 'MIT' (Join-Path $tp 'magic_enum\LICENSE') 'magic_enum-MIT.txt'
+Add-License 'LibAtrac9' '' 'MIT' (Join-Path $tp 'LibAtrac9\LICENSE') 'LibAtrac9-MIT.txt'
+Add-License 'cpuinfo' '' 'BSD-2-Clause' (Join-Path $tp 'cpuinfo\LICENSE') 'cpuinfo-BSD.txt'
+Add-License 'xxHash' '' 'BSD-2-Clause' (Join-Path $tp 'xxHash\LICENSE') 'xxHash-BSD.txt'
+Add-License 'stb' '' 'MIT ou dominio publico' (Join-Path $tp 'stb\LICENSE') 'stb-license.txt'
+Add-License 'Tracy' '' 'BSD-3-Clause' (Join-Path $tp 'tracy\LICENSE') 'tracy-BSD3.txt'
+Add-License 'Vulkan Memory Allocator' '' 'MIT' (Join-Path $tp 'VulkanMemoryAllocator\LICENSE.txt') 'VulkanMemoryAllocator-MIT.txt'
+Add-License 'Vulkan-Headers' '' 'Apache-2.0 / MIT' (Join-Path $tp 'Vulkan-Headers\LICENSE.md') 'Vulkan-Headers-license.md'
+Add-License 'SPIRV-Headers' '' 'MIT' (Join-Path $tp 'SPIRV-Headers\LICENSE') 'SPIRV-Headers-license.txt'
+Add-License 'SPIRV-Tools' '' 'Apache-2.0' (Join-Path $tp 'SPIRV-Tools\LICENSE') 'SPIRV-Tools-Apache-2.0.txt'
+Add-License 'winpthreads (libwinpthread-1.dll)' '' 'MIT/ZPL (ver arquivo)' (Join-Path $tp 'winpthread\COPYING') 'winpthreads-COPYING.txt'
+$md = New-Object System.Text.StringBuilder
+[void]$md.AppendLine('# Third-party components / Componentes de terceiros')
+[void]$md.AppendLine('')
+[void]$md.AppendLine('Gerado por tools/package.ps1. Nenhum arquivo do jogo faz parte deste pacote. Linhas PENDENTE: texto de licenca nao encontrado no momento do empacotamento (nada foi inventado).')
+[void]$md.AppendLine('')
+[void]$md.AppendLine('| Componente | Versao | Licenca | Arquivo |')
+[void]$md.AppendLine('|---|---|---|---|')
+foreach ($r in $tpRows) {
+    $f = $r.F; if ($r.N) { $f = "$f. $($r.N)" }
+    [void]$md.AppendLine(('| {0} | {1} | {2} | {3} |' -f $r.C, $r.V, $r.L, $f))
+}
+Add-Generated 'licenses\THIRD_PARTY.md' (($md.ToString()) -replace "`r?`n", "`r`n")
 
 $notices = Join-Path $SourceDir 'tools\local\package\THIRD-PARTY-NOTICES.md'
 if (Test-Path -LiteralPath $notices) {
