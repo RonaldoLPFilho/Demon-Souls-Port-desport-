@@ -73,3 +73,9 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
 - O FrameGen reimplementou capacidade de SaveData, `ClampRangeSize` em `FindBuffers`, `VirtualRanges` em árvore e fibras por thread. Commits do upstream nesses pontos tendem a conflitar.
 - AMPR: a reescrita em threads (`5bf9218b`, `c045f089` e seguintes) é tudo ou nada. Ela conflita com o `SlowLog` e com o porte do `41beda43` em `libAmpr.cpp`.
 - Lote B em `desport-up4` (6 commits; JpegDec/JpegEnc com `stb_image_write.h`; mutex FIFO `f5ec99fd`: se houver deadlock ou queda de fps, reverter esse primeiro).
+
+## Regressão e marcos
+- `run.ps1 -Scenario X` sem `-Launch game/config/fg-launch.json` usa o engine antigo; `tools/check.ps1` está assim e com falhas esperadas obsoletas.
+- Marcos DES_MILESTONE: `process_started`, `modules_loaded`, `game_entry`, `first_data_file`, `first_savedata_mount`, `flip_1/60/600/3600`. Não há marco de título, menu ou HUD (o autopilot detecta o HUD por pixels).
+- O save de referência `user/saves-backup/kyty-fg-20261023-2050` não tem localização registrada no jogo.
+- Pico de memória medido: 13,2–14,0 GB (platô de ~13 GB). O limite de 12 GB do PLAN §8.3 precisa ser revisto.
