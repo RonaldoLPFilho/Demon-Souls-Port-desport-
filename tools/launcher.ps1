@@ -43,7 +43,7 @@ param(
     [string]$Settings = '',
     # Configuração base de lançamento (padrão game/config/fg-launch.json).
     [string]$BaseLaunch = '',
-    # Script de pré-compilação dos shaders (padrão build/fg/precompile-windows.ps1).
+    # Script de pré-compilação dos shaders (padrão precompile-windows.ps1 na raiz do pacote, ou build/fg/ na árvore de desenvolvimento).
     [string]$PrecompileScript = '',
     # Ultrawide pelo patch de memória temporário (--game-patch) em vez de KYTY_ULTRAWIDE (engines sem a variável).
     [switch]$LegacyPatch
@@ -56,7 +56,12 @@ if (-not $Settings) { $Settings = Join-Path $Root 'user\launcher-settings.json' 
 elseif (-not [System.IO.Path]::IsPathRooted($Settings)) { $Settings = Join-Path $Root $Settings }
 if (-not $BaseLaunch) { $BaseLaunch = Join-Path $Root 'game\config\fg-launch.json' }
 elseif (-not [System.IO.Path]::IsPathRooted($BaseLaunch)) { $BaseLaunch = Join-Path $Root $BaseLaunch }
-if (-not $PrecompileScript) { $PrecompileScript = Join-Path $Root 'build\fg\precompile-windows.ps1' }
+if (-not $PrecompileScript) {
+    # Pacote: precompile-windows.ps1 na raiz; árvore de desenvolvimento: o do fork em build\fg.
+    $PrecompileScript = @((Join-Path $Root 'precompile-windows.ps1'), (Join-Path $Root 'build\fg\precompile-windows.ps1')) |
+        Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $PrecompileScript) { $PrecompileScript = Join-Path $Root 'precompile-windows.ps1' }
+}
 $RunScript = Join-Path $Root 'tools\run.ps1'
 $TestedTitle = 'PPSA01341'
 $TestedVersion = '01.007.000'

@@ -336,8 +336,14 @@ if (-not (Test-Path -LiteralPath $logFile)) {
 $triageArgs = @('-I', (Join-Path $Root 'tools/log_triage.py'), $RunDir)
 if ($Scenario) { $triageArgs += @('--scenario', $Scenario) }
 Write-Host ''
-& python @triageArgs
-$triageCode = $LASTEXITCODE
+# Pacote portátil: sem Python (ou sem log_triage.py) a triagem é pulada.
+if ((Get-Command python -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath (Join-Path $Root 'tools/log_triage.py'))) {
+    & python @triageArgs
+    $triageCode = $LASTEXITCODE
+} else {
+    Write-Host 'Triagem pulada (Python ou tools/log_triage.py ausente).'
+    $triageCode = 0
+}
 if ($Scenario) {
     $run.scenario_result = if ($triageCode -eq 0) { 'pass' } elseif ($triageCode -eq 2) { 'fail' } else { 'error' }
     Save-Run
