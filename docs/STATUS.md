@@ -19,6 +19,14 @@ v1.3 + camada desport, branch `desport-fg` do fork). Fases 0–2 concluídas; Fa
   o encaixe do `DES_TRACE` na relocação (reescrita por eles) e o `DES_COUNTERS` (não há
   `Common::DebugCounters`; eles têm `live-counters.h`).
 
+## Soak de 30 min — `captures/runs/20261023-220041-soak-30m-2`
+- HUD em 70 s; 30 min de movimento; **sem crash, sem congelamento** (vigia não disparou; janela nunca
+  perdeu o foco). fps por minuto 58,8–60 do 3º ao 31º minuto. 52 quadros lentos (16 s), pior 1,9 s.
+- **Memória plana: 12,96 GB do minuto 15 ao 30** (12,18 GB aos 5 min, 12,55 aos 10). O "alerta" de
+  41 MB/min da triagem vem do carregamento dentro da janela de cálculo.
+- S-001 (congelamento de 30 s / 200 s): reproduz só com a janela minimizada/coberta/sem foco; causa no
+  present (flip aposentado só depois de present bem-sucedido). Correção em `desport-s001`.
+
 ## Primeiro soak automático — `captures/runs/20261023-213716-soak-10m-1`
 - `tools/soak.ps1 -Minutes 10`: save de referência, piloto automático até o HUD em 109 s, 10 min de
   movimento (frente/trás/câmera), log do engine em Silent. **Sem crash.**
