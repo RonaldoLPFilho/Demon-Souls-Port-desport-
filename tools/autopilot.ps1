@@ -20,7 +20,8 @@ param(
     [int]$StartupSeconds = 240,
     [int]$PlaySeconds = 600,
     [string]$ShotDir = '',
-    [int]$ShotEvery = 60
+    [int]$ShotEvery = 60,
+    [switch]$SpeedProbe   # mede quanto o jogo andou em um intervalo fixo de relógio (ver abaixo); padrão desligado
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -155,6 +156,36 @@ while ($clock.Elapsed.TotalSeconds -lt $StartupSeconds) {
 }
 if ($state -ne 'hud') { Say "sem HUD em $StartupSeconds s (último estado: $state; janela fora de foco ${script:unfocused}x)"; exit 1 }
 Say 'HUD: no jogo'
+
+# 1b. -SpeedProbe: segura W por um tempo fixo de relógio e compara a imagem antes/depois. A mesma sequência a vblank 60
+#     e a vblank 120 deve dar diferenças parecidas se o jogo anda em tempo real; bem maior a 120 = jogo acelerado.
+#     Registra "SPEEDPROBE hold_ms=... wall_s=... diff=..." (média |A-B| por canal, 0-255, amostra 160x90) e salva
+#     speedprobe-A/B.png em -ShotDir. Compare entre execuções (mesmo trajeto, mesmo ponto de partida).
+if ($SpeedProbe) {
+    function Get-FrameDiff([System.Drawing.Bitmap]$a, [System.Drawing.Bitmap]$b) {
+        $sum = 0; $n = 0
+        for ($y = 0; $y -lt 360; $y += 4) { for ($x = 0; $x -lt 640; $x += 4) {
+            $p = $a.GetPixel($x, $y); $q = $b.GetPixel($x, $y)
+            $sum += [Math]::Abs($p.R - $q.R) + [Math]::Abs($p.G - $q.G) + [Math]::Abs($p.B - $q.B); $n += 3 } }
+        return $sum / $n
+    }
+    Start-Sleep -Seconds 3
+    $a = Capture
+    $probeClock = [Diagnostics.Stopwatch]::StartNew()
+    Press 'w' 4000
+    $b = Capture
+    $wall = $probeClock.Elapsed.TotalSeconds
+    if ($a -and $b) {
+        try {
+            Say ("SPEEDPROBE hold_ms=4000 wall_s={0:N2} diff={1:N2}" -f $wall, (Get-FrameDiff $a $b))
+            if ($ShotDir) {
+                New-Item -ItemType Directory -Force -Path $ShotDir | Out-Null
+                $a.Save((Join-Path $ShotDir 'speedprobe-A.png')); $b.Save((Join-Path $ShotDir 'speedprobe-B.png'))
+            }
+        } finally { $a.Dispose(); $b.Dispose() }
+    } else { Say 'SPEEDPROBE sem captura (janela fora de foco)' }
+    Start-Sleep -Milliseconds 500
+}
 
 # 2. Jogo: frente, giro, trás, giro — fica perto do ponto de partida.
 $plan = @(@('w', 3000), @('h', 600), @('s', 3000), @('f', 600))
