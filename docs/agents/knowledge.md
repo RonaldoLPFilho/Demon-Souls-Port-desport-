@@ -49,6 +49,7 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
   leitura estática; o ceremony88 também anota). Física com passo fixo de 60 Hz.
 - TAA: compute shader `0xa44e580f4f0cfb2b`, saída 2560x1440 (= resolução de render). O upscale para 4K é
   uma passada separada, ainda não localizada (bloqueia o DLSS de upscale real).
+- Vídeos: o contador de .bk2 abertos volta a 0 antes do HUD (nightly-v120: último `off` em 37,7 s, HUD em 61,3 s); nenhum vídeo segura o ritmo no gameplay. `DES_VBLANK movie_pacing` só é logado com vblank ≥100 Hz.
 - Layout da UI: função do retângulo localizável pela assinatura `c5 fb 10 4f 04 c5 fa 10 57 14 8b 07 c5 fa 16 c1`.
 
 ## Desempenho (2026-10-23, análise em `captures/perf-analysis-20261023.md`)
