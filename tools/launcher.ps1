@@ -154,6 +154,36 @@ function Save-Settings($s) {
 
 # ---------------------------------------------------------------- jogo
 
+# desport: detecta eboot.bin criptografado/comprimido pelo cabeçalho (SELF: magic, contagem e tipo dos segmentos; bit 0x800 =
+# tem program header, 0x2 = criptografado, 0x8 = comprimido). Só lê os primeiros bytes; nada é descriptografado.
+function Test-EbootHeader([string]$EbootPath) {
+    $bad = { param($m) [pscustomobject]@{ nivel = 'erro'; msg = $m } }
+    try {
+        $fs = [System.IO.File]::Open($EbootPath, 'Open', 'Read', 'ReadWrite')
+        try {
+            $head = New-Object byte[] 32
+            $n = $fs.Read($head, 0, 32)
+            if ($n -lt 32) { return (& $bad 'eboot.bin pequeno demais: não é um executável do jogo.') }
+            $magic = [BitConverter]::ToString($head, 0, 4)
+            if ($magic -eq '7F-45-4C-46') { return [pscustomobject]@{ nivel = 'ok'; msg = 'eboot.bin em texto claro (ELF).' } }
+            if ($magic -ne '4F-15-3D-1D' -and $magic -ne '54-14-F5-EE') {
+                return (& $bad 'eboot.bin em formato desconhecido (talvez criptografado). Só dumps já em texto claro são aceitos; o launcher não descriptografa nada.')
+            }
+            $count = [int][BitConverter]::ToUInt16($head, 24)
+            if ($count -lt 1 -or $count -gt 512) { return (& $bad 'Cabeçalho SELF do eboot.bin inválido (contagem de segmentos).') }
+            $seg = New-Object byte[] ($count * 32)
+            if ($fs.Read($seg, 0, $seg.Length) -lt $seg.Length) { return (& $bad 'Cabeçalho SELF do eboot.bin truncado.') }
+            for ($i = 0; $i -lt $count; $i++) {
+                $type = [BitConverter]::ToUInt64($seg, $i * 32)
+                if (($type -band 0x800) -and ($type -band 0xA)) {
+                    return (& $bad 'eboot.bin criptografado ou comprimido. O desport só aceita um dump já em texto claro, tirado do seu próprio console; não há descriptografia aqui.')
+                }
+            }
+            return [pscustomobject]@{ nivel = 'ok'; msg = 'eboot.bin em texto claro (SELF).' }
+        } finally { $fs.Dispose() }
+    } catch { return [pscustomobject]@{ nivel = 'aviso'; msg = "Não consegui ler o cabeçalho do eboot.bin: $($_.Exception.Message)" } }
+}
+
 # Confere a pasta do jogo: devolve ok (pode jogar), nivel (ok/aviso/erro) e a mensagem.
 function Test-GameFolder([string]$Path) {
     if (-not $Path) { return [pscustomobject]@{ ok = $false; nivel = 'erro'; msg = 'Escolha a pasta do jogo (a que tem o eboot.bin).' } }
@@ -163,6 +193,9 @@ function Test-GameFolder([string]$Path) {
     if (-not (Test-Path -LiteralPath (Join-Path $Path 'eboot.bin'))) {
         return [pscustomobject]@{ ok = $false; nivel = 'erro'; msg = 'Não há eboot.bin nessa pasta (o dump precisa estar descriptografado).' }
     }
+    # desport: só detecta (cabeçalho do SELF, mesmo critério de tools/ps5elf.py); não há descriptografia no projeto.
+    $enc = Test-EbootHeader (Join-Path $Path 'eboot.bin')
+    if ($enc.nivel -eq 'erro') { return [pscustomobject]@{ ok = $false; nivel = 'erro'; msg = $enc.msg } }
     $paramPath = Join-Path $Path 'sce_sys\param.json'
     if (-not (Test-Path -LiteralPath $paramPath)) {
         return [pscustomobject]@{ ok = $true; nivel = 'aviso'; msg = 'Falta sce_sys\param.json: não consigo confirmar a versão do jogo.' }
@@ -280,6 +313,176 @@ function Get-StaleDriverCache([string]$Work, [string]$CurrentKey) {
     return $result
 }
 
+# ---------------------------------------------------------------- checagens de abertura
+
+# desport: checagens antes de liberar o Jogar (PLAN.md Fase 7 item 6), no espírito do bbport (CPU, versão do jogo, GPU/driver).
+# Nada de rede. Nível: ok (verde), aviso (amarelo), erro (vermelho, bloqueia o Jogar).
+# Streamline 2.14.1: README do SDK exige driver NVIDIA 512.15 ou mais novo; o SDK não documenta mínimo próprio do DLSS 4.5.
+$script:sysInfo = $null
+$MinNvidiaDriver = [version]'512.15'
+# Heurística do projeto (não vem de documentação): abaixo de 4 núcleos o jogo não roda decente; recomendado 6 núcleos / 12 threads.
+$CpuMinCores = 4; $CpuRecCores = 6; $CpuRecThreads = 12
+$RamRecGB = 16
+# DLLs que o frame-gen.cpp carrega (tools/package.ps1 lista as mesmas): DLSS-SR e, com geração de quadros, as do DLSS-G.
+$SlDllsBase = 'sl.interposer.dll', 'sl.common.dll', 'sl.dlss.dll', 'nvngx_dlss.dll'
+$SlDllsFg = 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll', 'nvngx_dlssg.dll'
+
+if (-not ('DesLauncher.Cpu' -as [type])) {
+    Add-Type -Namespace DesLauncher -Name Cpu -MemberDefinition '[DllImport("kernel32.dll")] public static extern bool IsProcessorFeaturePresent(uint f);'
+}
+
+# Driver NVIDIA "32.0.15.6094" -> 560.94 (os 5 últimos dígitos das duas últimas partes); $null se não for possível.
+function ConvertTo-NvidiaDriver([string]$Raw) {
+    $p = $Raw -split '\.'
+    if ($p.Count -lt 4) { return $null }
+    $d = ($p[2] + $p[3]) -replace '\D', ''
+    if ($d.Length -lt 5) { return $null }
+    $d = $d.Substring($d.Length - 5)
+    try { return [version]($d.Substring(0, 3) + '.' + $d.Substring(3)) } catch { return $null }
+}
+
+# Hardware (CPU, RAM, GPUs), lido uma vez por execução.
+function Get-SystemInfo {
+    if ($script:sysInfo) { return $script:sysInfo }
+    $info = [ordered]@{ cpuName = ''; cores = 0; threads = 0; avx = $null; avx2 = $null; ramGB = 0; gpus = @() }
+    try {
+        $cpus = @(Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop)
+        $info.cpuName = ($cpus[0].Name -replace '\s+', ' ').Trim()
+        $info.cores = [int](($cpus | Measure-Object -Property NumberOfCores -Sum).Sum)
+        $info.threads = [int](($cpus | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum)
+    } catch {}
+    try { $info.avx = [DesLauncher.Cpu]::IsProcessorFeaturePresent(39); $info.avx2 = [DesLauncher.Cpu]::IsProcessorFeaturePresent(40) } catch {}
+    try { $info.ramGB = [math]::Round((Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory / 1GB, 1) } catch {}
+    try {
+        $info.gpus = @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction Stop |
+            Where-Object { $_.Name -and $_.Name -notmatch 'Basic Render|Remote|Virtual|Parsec|Meta Virtual' } | ForEach-Object {
+                $vendor = switch -Regex ([string]$_.PNPDeviceID) { 'VEN_10DE' { 'NVIDIA' } 'VEN_1002' { 'AMD' } 'VEN_8086' { 'Intel' } default { 'desconhecido' } }
+                [pscustomobject]@{ name = [string]$_.Name; vendor = $vendor; driverRaw = [string]$_.DriverVersion; nvDriver = $(if ($vendor -eq 'NVIDIA') { ConvertTo-NvidiaDriver ([string]$_.DriverVersion) } else { $null }) }
+            })
+    } catch {}
+    $script:sysInfo = [pscustomobject]$info
+    return $script:sysInfo
+}
+
+# Pasta das DLLs do Streamline como o engine a procura (KYTY_STREAMLINE_DIR, depois três candidatas ao lado do exe).
+function Find-StreamlineDir([string]$ExePath, $base) {
+    $envDir = ''
+    if ($base -and $base.PSObject.Properties['environment'] -and $base.environment.PSObject.Properties['KYTY_STREAMLINE_DIR']) { $envDir = [string]$base.environment.KYTY_STREAMLINE_DIR }
+    elseif ($env:KYTY_STREAMLINE_DIR) { $envDir = $env:KYTY_STREAMLINE_DIR }
+    if ($envDir) { return $envDir }
+    if (-not $ExePath) { return '' }
+    $exeDir = Split-Path -Parent $ExePath
+    $cands = @((Join-Path $exeDir 'streamline\bin\x64'), (Join-Path $exeDir '_Build\deps\streamline\sdk\bin\x64'),
+        (Join-Path (Split-Path -Parent $exeDir) 'deps\streamline\sdk\bin\x64'))
+    foreach ($c in $cands) { if (Test-Path -LiteralPath (Join-Path $c 'sl.interposer.dll')) { return $c } }
+    return $cands[0]
+}
+
+# Roda todas as checagens para as escolhas $s. Devolve itens (area/nivel/msg), blocking (algum erro) e se DLSS / geração de
+# quadros devem ser desligados (placa sem RTX, RTX 20/30 sem geração de quadros, driver abaixo do mínimo).
+function Get-LaunchChecks($s) {
+    $items = New-Object System.Collections.Generic.List[object]
+    $add = { param($area, $nivel, $msg) $items.Add([pscustomobject]@{ area = $area; nivel = $nivel; msg = $msg }) }
+    $sys = Get-SystemInfo
+    $disableDlss = $false; $disableFg = $false
+    $wantDlss = ($s.dlss -and $s.dlss -ne 'off'); $wantFg = ([int]$s.frameGen -gt 0)
+
+    # 1. Jogo
+    $g = Test-GameFolder ([string]$s.game)
+    & $add 'Jogo' $g.nivel $g.msg
+
+    # 2. CPU
+    $cpu = if ($sys.cpuName) { "$($sys.cpuName), $($sys.cores) núcleos / $($sys.threads) threads" } else { 'CPU não identificada' }
+    if ($null -eq $sys.avx2) { & $add 'CPU' 'aviso' "$cpu. Não consegui verificar AVX2 (o engine exige)." }
+    elseif (-not $sys.avx2) { & $add 'CPU' 'erro' "$cpu. Sem AVX2: o engine é compilado para x86-64-v3 (AVX2, FMA, BMI2) e travaria. Precisa de Intel Haswell (4a geração) ou mais nova, ou AMD Ryzen." }
+    elseif ($sys.cores -gt 0 -and $sys.cores -lt $CpuMinCores) { & $add 'CPU' 'aviso' "$cpu. AVX2 presente, mas abaixo do mínimo de $CpuMinCores núcleos: vai engasgar." }
+    elseif ($sys.cores -gt 0 -and ($sys.cores -lt $CpuRecCores -or $sys.threads -lt $CpuRecThreads)) { & $add 'CPU' 'aviso' "$cpu. AVX2 presente; recomendado $CpuRecCores núcleos / $CpuRecThreads threads ou mais." }
+    else { & $add 'CPU' 'ok' "$cpu. AVX2 presente." }
+    if ($sys.ramGB -gt 0 -and $sys.ramGB -lt $RamRecGB) { & $add 'Memória' 'aviso' "$($sys.ramGB) GB de RAM: recomendado $RamRecGB GB ou mais." }
+
+    # 3. GPU, driver, Vulkan
+    $gpu = @($sys.gpus | Where-Object { $_.vendor -eq 'NVIDIA' } | Select-Object -First 1)
+    if (-not $gpu) { $gpu = @($sys.gpus | Select-Object -First 1) }
+    if (-not $gpu) {
+        & $add 'GPU' 'aviso' 'Não consegui identificar a placa de vídeo (Win32_VideoController).'
+        if ($wantDlss -or $wantFg) { $disableDlss = $true; $disableFg = $true }
+    } else {
+        $gpu = $gpu[0]
+        $drv = if ($gpu.nvDriver) { "driver $($gpu.nvDriver)" } elseif ($gpu.driverRaw) { "driver $($gpu.driverRaw)" } else { 'driver desconhecido' }
+        $label = "$(if ($gpu.name -like "$($gpu.vendor)*") { $gpu.name } else { $gpu.vendor + " " + $gpu.name }), $drv"
+        $isRtx = ($gpu.vendor -eq 'NVIDIA' -and $gpu.name -match 'RTX')
+        $series = 0
+        if ($isRtx -and $gpu.name -notmatch 'Quadro|RTX\s*A\d|Tesla' -and $gpu.name -match 'RTX\s*(\d{2})\d{2}') { $series = [int]$Matches[1] }
+        if (-not $isRtx) {
+            if ($wantDlss -or $wantFg) {
+                $disableDlss = $true; $disableFg = $true
+                & $add 'GPU' 'aviso' "$label. DLSS e geração de quadros exigem placa NVIDIA RTX: opções desligadas."
+            } else { & $add 'GPU' 'ok' "$label. Sem NVIDIA RTX: DLSS e geração de quadros ficam indisponíveis." }
+        } elseif ($gpu.nvDriver -and $gpu.nvDriver -lt $MinNvidiaDriver) {
+            if ($wantDlss -or $wantFg) {
+                $disableDlss = $true; $disableFg = $true
+                & $add 'GPU' 'aviso' "$label. O Streamline 2.14 exige driver NVIDIA $MinNvidiaDriver ou mais novo (README do SDK): DLSS e geração de quadros desligados. Atualize o driver."
+            } else { & $add 'GPU' 'aviso' "$label. Driver abaixo de $MinNvidiaDriver (mínimo do Streamline 2.14): DLSS e geração de quadros não vão funcionar." }
+        } elseif ($isRtx -and -not $gpu.nvDriver) {
+            & $add 'GPU' 'aviso' "$label. Não consegui ler a versão do driver NVIDIA (mínimo para o Streamline 2.14: $MinNvidiaDriver)."
+        } elseif ($series -gt 0 -and $series -lt 40 -and $wantFg) {
+            $disableFg = $true
+            & $add 'GPU' 'aviso' "$label. Geração de quadros pede RTX 40 ou mais nova: opção desligada (o DLSS continua)."
+        } elseif ($series -gt 0 -and $series -lt 50 -and [int]$s.frameGen -ge 2) {
+            & $add 'GPU' 'aviso' "$label. Geração de quadros 3x e 4x pedem RTX 50; nesta placa o engine pode recusar."
+        } else { & $add 'GPU' 'ok' "$label." }
+        $others = @($sys.gpus | Where-Object { $_.name -ne $gpu.name })
+        if ($others.Count -gt 0) { & $add 'GPU' 'ok' ('Também presente: ' + (($others | ForEach-Object { $_.name }) -join ', ') + '. O engine escolhe a placa; em notebook, rode o launcher na GPU NVIDIA.') }
+    }
+    $vk = Join-Path $env:windir 'System32\vulkan-1.dll'
+    if (Test-Path -LiteralPath $vk) { & $add 'Vulkan' 'ok' 'vulkan-1.dll presente (o driver precisa suportar Vulkan 1.3).' }
+    else { & $add 'Vulkan' 'erro' 'vulkan-1.dll não encontrado em System32: instale ou atualize o driver da placa de vídeo.' }
+
+    # 4. Arquivos do engine
+    $base = $null
+    try { $base = Get-Content -LiteralPath $BaseLaunch -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+    if (-not $base) {
+        & $add 'Engine' 'erro' "Configuração de lançamento ausente ou inválida: $BaseLaunch"
+    } else {
+        $ci = Get-DriverCacheInfo $base
+        $exe = $ci.exe
+        if (-not $exe) { $exe = (Read-LocalIni (Join-Path $Root 'desport.local.ini'))['KYTY_EXE'] }
+        if (-not $exe -or -not (Test-Path -LiteralPath $exe)) {
+            & $add 'Engine' 'erro' "kyty_emulator.exe não encontrado$(if ($exe) { ' (' + $exe + ')' }). Compile o engine ou use o pacote completo."
+        } else {
+            $enginMsg = 'kyty_emulator.exe presente.'
+            $nivel = 'ok'
+            if (($wantDlss -and -not $disableDlss) -or ($wantFg -and -not $disableFg)) {
+                $slDir = Find-StreamlineDir $exe $base
+                $need = @($SlDllsBase)
+                if ($wantFg -and -not $disableFg) { $need += $SlDllsFg }
+                $missing = @($need | Where-Object { -not (Test-Path -LiteralPath (Join-Path $slDir $_)) })
+                if ($missing.Count -gt 0) {
+                    $nivel = 'aviso'
+                    $enginMsg += " Faltam DLLs do Streamline em ${slDir}: $($missing -join ', '). O engine roda sem DLSS/geração de quadros."
+                } else { $enginMsg += " DLLs do Streamline/DLSS presentes ($slDir)." }
+            }
+            & $add 'Engine' $nivel $enginMsg
+        }
+        # Cache estático de pipelines (junction em <work_dir>\_PipelineCache\static)
+        $static = Join-Path $ci.work '_PipelineCache\static'
+        $hasStatic = $false
+        if (Test-Path -LiteralPath $static -PathType Container) {
+            $hasStatic = [bool](Get-ChildItem -LiteralPath $static -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+        }
+        if ($hasStatic) { & $add 'Shaders' 'ok' 'Cache estático de pipelines presente.' }
+        else { & $add 'Shaders' 'aviso' 'Sem cache estático de pipelines: a primeira sessão vai compilar shaders (travadas). Use "Pré-compilar shaders".' }
+    }
+    $blocking = (@($items.ToArray() | Where-Object { $_.nivel -eq 'erro' }).Count -gt 0)
+    return [pscustomobject]@{ items = $items.ToArray(); blocking = $blocking; disableDlss = $disableDlss; disableFg = $disableFg }
+}
+
+# Desliga em $s o que as checagens mandaram desligar.
+function Set-CheckOverrides($s, $c) {
+    if ($c.disableDlss -and $s.dlss -ne 'off') { $s.dlss = 'off' }
+    if ($c.disableFg -and [int]$s.frameGen -gt 0) { $s.frameGen = 0 }
+}
+
 # ---------------------------------------------------------------- JSON de lançamento
 
 # Parte de game/config/fg-launch.json e aplica as escolhas (mesmo formato do arquivo base).
@@ -381,6 +584,12 @@ function Get-RunArguments([string]$LaunchFile, $s) {
 
 if ($DryRun) {
     $s = Load-Settings
+    # desport: checagens de abertura (o que o launcher mostra no painel); DLSS/geração de quadros caem aqui se a placa não der.
+    $checks = Get-LaunchChecks $s
+    Set-CheckOverrides $s $checks
+    Write-Host '# checagens de abertura:'
+    foreach ($c in $checks.items) { Write-Host ('#   [{0}] {1}: {2}' -f $c.nivel, $c.area, $c.msg) }
+    Write-Host "#   Jogar: $(if ($checks.blocking) { 'BLOQUEADO (há erro vermelho)' } else { 'liberado' })"
     $check = Test-GameFolder ([string]$s.game)
     Write-Host "# pasta do jogo: [$($check.nivel)] $($check.msg)"
     $patchTmp = Join-Path ([System.IO.Path]::GetTempPath()) 'desport-ultrawide-<id>.json'
@@ -418,6 +627,7 @@ $script:ultrawidePatch = $null
 $script:ui = @{}
 $script:loading = $true
 $script:gameOk = $false
+$script:checksBlock = $false
 
 function New-Label([string]$text, [int]$x, [int]$y, [int]$w = 150) {
     $l = New-Object System.Windows.Forms.Label
@@ -507,13 +717,45 @@ function Update-GameStatus {
         default { [System.Drawing.Color]::FromArgb(190, 30, 30) }
     }
     $script:gameOk = $check.ok
+    Update-Checks
+}
+
+# desport: checagens de abertura no painel (verde ok, amarelo aviso, vermelho bloqueia o Jogar). Desliga DLSS / geração de
+# quadros nos controles quando a placa ou o driver não dão conta.
+function Update-Checks {
+    $u = $script:ui
+    Read-Controls
+    $c = Get-LaunchChecks $script:s
+    $before = "$($script:s.dlss)|$($script:s.frameGen)"
+    Set-CheckOverrides $script:s $c
+    if ("$($script:s.dlss)|$($script:s.frameGen)" -ne $before) {
+        $prev = $script:loading
+        $script:loading = $true
+        Select-Pair $u.dlss $DlssModes $script:s.dlss
+        Select-Pair $u.fg $FrameGenModes $script:s.frameGen
+        $script:loading = $prev
+        $why = ($c.items | Where-Object { $_.area -eq 'GPU' -and $_.nivel -eq 'aviso' } | Select-Object -First 1)
+        Set-Status ('DLSS / geração de quadros desligados. ' + $(if ($why) { $why.msg } else { '' })) ([System.Drawing.Color]::FromArgb(190, 110, 0))
+    }
+    $rtb = $u.checks
+    $rtb.Clear()
+    foreach ($i in $c.items) {
+        $rtb.SelectionColor = switch ($i.nivel) {
+            'ok' { [System.Drawing.Color]::FromArgb(0, 120, 40) }
+            'aviso' { [System.Drawing.Color]::FromArgb(190, 110, 0) }
+            default { [System.Drawing.Color]::FromArgb(190, 30, 30) }
+        }
+        $tag = switch ($i.nivel) { 'ok' { 'OK   ' } 'aviso' { 'AVISO' } default { 'ERRO ' } }
+        $rtb.AppendText("[$tag] $($i.area): $($i.msg)`n")
+    }
+    $script:checksBlock = $c.blocking
     Update-Enabled
 }
 
 function Update-Enabled {
     $u = $script:ui
     $running = ($null -ne $script:proc -and -not $script:proc.HasExited)
-    $u.play.Enabled = ($script:gameOk -and -not $running)
+    $u.play.Enabled = ($script:gameOk -and -not $script:checksBlock -and -not $running)
     $u.stop.Enabled = $running
     $u.precompile.Enabled = ($script:gameOk -and -not $running)
     $u.preset.Enabled = ((Get-Pair $u.dlss $DlssModes) -ne 'off')
@@ -588,7 +830,7 @@ $form.Text = "Demon's Souls para PC - launcher do desport"
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
-$form.ClientSize = New-Object System.Drawing.Size(600, 696)
+$form.ClientSize = New-Object System.Drawing.Size(600, 798)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $u = $script:ui
 
@@ -658,7 +900,15 @@ $u.reset = New-Button 'Restaurar padrões' 408 580 180
 $u.status = New-Label 'Pronto.' 12 622 576
 $u.status.Size = New-Object System.Drawing.Size(576, 48)
 $u.status.TextAlign = 'TopLeft'
-$form.Controls.AddRange(@($g1, $g2, $g3, $u.play, $u.stop, $u.precompile, $u.logs, $u.reset, $u.status))
+# desport: painel das checagens de abertura
+$g4 = New-Object System.Windows.Forms.GroupBox
+$g4.Text = 'Checagens de abertura'; $g4.Location = New-Object System.Drawing.Point(12, 676); $g4.Size = New-Object System.Drawing.Size(576, 114)
+$u.checks = New-Object System.Windows.Forms.RichTextBox
+$u.checks.Location = New-Object System.Drawing.Point(8, 20); $u.checks.Size = New-Object System.Drawing.Size(560, 86)
+$u.checks.ReadOnly = $true; $u.checks.BorderStyle = 'None'; $u.checks.BackColor = [System.Drawing.SystemColors]::Control
+$u.checks.Font = New-Object System.Drawing.Font('Segoe UI', 8.25); $u.checks.ScrollBars = 'Vertical'; $u.checks.TabStop = $false
+$g4.Controls.Add($u.checks)
+$form.Controls.AddRange(@($g1, $g2, $g3, $u.play, $u.stop, $u.precompile, $u.logs, $u.reset, $u.status, $g4))
 
 # Dicas
 $tip = New-Object System.Windows.Forms.ToolTip
@@ -680,7 +930,8 @@ $u.browse.Add_Click({
     if ($d.ShowDialog() -eq 'OK') { $u.game.Text = $d.SelectedPath }
 })
 $u.game.Add_TextChanged({ if (-not $script:loading) { Update-GameStatus } })
-$u.dlss.Add_SelectedIndexChanged({ if (-not $script:loading) { Update-Enabled } })
+$u.dlss.Add_SelectedIndexChanged({ if (-not $script:loading) { Update-Enabled; Update-Checks } })
+$u.fg.Add_SelectedIndexChanged({ if (-not $script:loading) { Update-Checks } })
 $u.fps.Add_SelectedIndexChanged({ if (-not $script:loading) { Update-Enabled } })
 $u.legacy.Add_CheckedChanged({ if (-not $script:loading) { Update-Enabled } })
 $u.play.Add_Click({ Start-Game })
