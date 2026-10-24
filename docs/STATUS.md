@@ -6,6 +6,20 @@ v1.3 + camada desport, branch `desport-fg` do fork). Fases 0–2 concluídas; Fa
 
 **Meta do Ronaldo (2026-10-23):** o port do Demon's Souls tão estável quanto o bbport do Bloodborne.
 
+## Noite de 2026-10-24 (trabalho autônomo) — resumo
+
+- `desport-int` (`279661f1`, publicada no fork) integra: ultrawide (HUD 16:9 opcional), `KYTY_FPS_LIMIT`, `DES_FRAME`,
+  lote B do upstream, readback antecipado (modos 1–3), DLSS fase B (SR+FG+Reflex) e contadores de latência (`KYTY_READBACK_LATENCY`).
+- Validado sem você: bateria noturna (soak 60 min, 0 crash); soak de 30 min com `KYTY_FPS_LIMIT=display`
+  (`captures/runs/*soak30-fpslimit`): média de 67,6 fps, nenhuma janela abaixo de 55, 0 crash, 15 quadros lentos. DLSS quality
+  com FG 1 (`*dlss-fg-combined`): `combined=1`, 2 quadros apresentados por renderizado, 300/300 marcados, sem crash.
+- Correções: FIX-013 (handle de .bk2 ocioso prendia o fps), FIX-014 (build), FIX-015 (HUD 16:9 e pillarbox no ultrawide).
+- Desempenho (`docs/agents/knowledge.md`): teto de ~70 fps por latência de ida e volta à GPU. O guest espera ~2,7 ms por leitura
+  atrás de ~23 submissões gráficas na fila única. Readback antecipado e yield não ganharam. Em andamento: fila Vulkan de
+  compute separada (`desport-acq`).
+- Pendente com você: velocidade do jogo acima de 60 fps (visual), qualidade de imagem do DLSS+FG com HUD em movimento, vídeos
+  no ultrawide (ainda à esquerda; pillarbox desligado por padrão) e a localização do save de referência.
+
 ## Estado em 2026-10-23 23:15 (para retomar após compactação)
 **Engine de trabalho:** branch `desport-int` (worktree `build/fg-int`), = `desport-fg` + merges de
 `desport-crash` (minidump + DES_CRASH), `desport-mem` (DES_MEM), `desport-s001` (FIX-005 janela
