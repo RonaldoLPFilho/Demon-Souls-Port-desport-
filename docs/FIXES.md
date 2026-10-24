@@ -295,3 +295,16 @@ Cada correção (PLAN.md §1.2 regra 7) entra aqui antes do commit, no formato:
   imagem nítida e no lugar, sem recorte nem deslocamento. O HUD fica um pouco maior com `KYTY_ULTRAWIDE_HUD=native` em 16:9.
   Pendente: conferência visual em movimento pelo Ronaldo, sinal do jitter, LOD bias negativo, DLSS-G combinado.
 - Candidato a upstream: não.
+
+## FIX-017 — Ultrawide: vídeos e cutscenes encostados à esquerda (2026-10-24)
+- Fase / área: 7 (ultrawide) / renderer; `desport-int` `e3662cc5` e `e1125002` (`renderDraw.cpp`, `desportUltrawide.cpp`).
+- Sintoma e evidência antes: a 3440x1440 com HUD nativo, o vídeo ocupava x 0..2560, com o resto preto
+  (`captures/runs/20261024-100901-uw-movcap2/shot-36569.png`). Relato do Ronaldo: "vídeos deslocados, cutscene".
+- Causa: com a UI em 3440x1440, o jogo monta o vídeo 16:9 a partir da borda esquerda dentro da camada de vídeo
+  (ps `a6b124d2b1ba4b7e`, que amostra a superfície 3840x2160 do vídeo). Estreitar o viewport não resolvia.
+- Mudança: enquanto um vídeo toca, esse desenho tem o viewport deslocado em (L - A·16/9)/2. O vídeo e as legendas ficam
+  centralizados, com barras pretas laterais. Ligado por padrão com `KYTY_ULTRAWIDE_RENDER=1` e `KYTY_ULTRAWIDE_HUD=native`
+  (`KYTY_ULTRAWIDE_MOVIES=stretch` desliga).
+- Verificação: `captures/runs/20261024-101430-uw-movcap3/shot-cap.png`, com o logo PS Studios centralizado e
+  `movie_pillarbox draw ... layer shifted` no log. Pendente: cutscenes em vídeo durante o jogo, a conferir pelo Ronaldo.
+- Candidato a upstream: não.
