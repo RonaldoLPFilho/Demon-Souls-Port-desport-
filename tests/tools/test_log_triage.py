@@ -97,6 +97,20 @@ class TriageTests(unittest.TestCase):
             self.assertIn('3 janelas: mínimo 3.0, mediana 5.0, máximo 40.0', text)
             self.assertIn("0′ 4.0, 1′ 40.0", text)
 
+    def test_hitches_from_stdout(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            self.assertIsNone(log_triage.triage(run)[0]['hitches'])
+            (run / 'stdout.txt').write_text(
+                '[tsc 1] SLOW Frame 764.3 ms idle=0.0 compile=757.0 record_wait=1.5\n'
+                'other line\n'
+                '[tsc 2] SLOW Frame 1200.0 ms idle=3.8 cpu=385.9 compile=100.0\n'
+                '[tsc 3] SLOW Frame 120.0 ms idle=0.0 cpu=2.0\n', encoding='utf-8')
+            h = log_triage.triage(run)[0]['hitches']
+            self.assertEqual((h['count'], h['over_500'], h['over_1000'], h['compile_count']), (3, 2, 1, 1))
+            self.assertAlmostEqual(h['worst_ms'], 1200.0)
+            self.assertIn('3 quadros lentos', log_triage.render(log_triage.triage(run)[0]))
+
     def test_stats_per_frame(self):
         with tempfile.TemporaryDirectory() as root:
             run = make_run(root)

@@ -160,6 +160,34 @@ def game_log_summary(run_dir):
     return dict(files=[p.name for p in logs], timings=timings, errors=errors)
 
 
+SLOW_FRAME_RE = re.compile(r'SLOW Frame ([\d.]+) ms(.*)$')
+
+
+def hitch_summary(run_dir):
+    """Quadros lentos do engine FrameGen ("SLOW Frame <ms> ms ... compile=<ms>" no stdout.txt)."""
+    path = run_dir / 'stdout.txt'
+    if not path.exists():
+        return None
+    frames = []
+    for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
+        m = SLOW_FRAME_RE.search(line)
+        if not m:
+            continue
+        fields = dict(kv.split('=', 1) for kv in m.group(2).split() if '=' in kv)
+        try:
+            compile_ms = float(fields.get('compile', 0))
+        except ValueError:
+            compile_ms = 0.0
+        frames.append((float(m.group(1)), compile_ms))
+    if not frames:
+        return None
+    total = sum(f for f, _ in frames)
+    compiling = [f for f, c in frames if c >= 0.5 * f]
+    return dict(count=len(frames), total_ms=total, worst_ms=max(f for f, _ in frames),
+                over_500=sum(1 for f, _ in frames if f >= 500), over_1000=sum(1 for f, _ in frames if f >= 1000),
+                compile_count=len(compiling), compile_ms=sum(compiling))
+
+
 def load_status():
     path = ROOT / 'out' / 'nid_status.json'
     if not path.exists():
@@ -182,6 +210,7 @@ def triage(target):
     report['memory'] = memory_summary(run_dir / 'memory.csv')
     report['calls'] = calls_summary(run_dir / 'calls.json')
     report['game_log'] = game_log_summary(run_dir)
+    report['hitches'] = hitch_summary(run_dir)
     if report['host_exception']:
         report['host_exception']['where'] = locate(report['host_exception']['pc'], report['modules'])
     status = load_status()
@@ -321,6 +350,14 @@ def render(report):
                  f"máximo {values[-1]:.1f}")
         L.append('- Por minuto: ' + ', '.join(
             f"{minute}′ {sum(v) / len(v):.1f}" for minute, v in sorted(_by_minute(report['fps']).items())))
+        L.append('')
+    hitches = report.get('hitches')
+    if hitches:
+        L.append('## Travadas (SLOW Frame, stdout.txt)\n')
+        L.append(f"- {hitches['count']} quadros lentos, {hitches['total_ms'] / 1000:.1f} s no total; pior "
+                 f"{hitches['worst_ms']:.0f} ms; ≥ 500 ms: {hitches['over_500']}; ≥ 1 s: {hitches['over_1000']}")
+        L.append(f"- Dominados por compilação de shader: {hitches['compile_count']} "
+                 f"({hitches['compile_ms'] / 1000:.1f} s)")
         L.append('')
     if report['counters'] or report['stats']:
         L.extend(_render_stats(report))
