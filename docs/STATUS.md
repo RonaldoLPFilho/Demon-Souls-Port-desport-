@@ -6,6 +6,36 @@ v1.3 + camada desport, branch `desport-fg` do fork). Fases 0–2 concluídas; Fa
 
 **Meta do Ronaldo (2026-10-23):** o port do Demon's Souls tão estável quanto o bbport do Bloodborne.
 
+## Estado em 2026-10-23 23:15 (para retomar após compactação)
+**Engine de trabalho:** branch `desport-int` (worktree `build/fg-int`), = `desport-fg` + merges de
+`desport-crash` (minidump + DES_CRASH), `desport-mem` (DES_MEM), `desport-s001` (FIX-005 janela
+minimizada), `desport-vblank` (vídeos a 60 flips/s com vblank 120), `desport-dlss` (DLSS SR fase A),
+`desport-up1` (20 correções do upstream), `desport-up2` (AMPR 41beda43), `desport-uw` (KYTY_ULTRAWIDE),
+`desport-rz` (red zone: varredura de lacunas + KYTY_REDZONE_FAULT_AUDIT), `desport-faults`
+(KYTY_FAULT_CLASSIFY → DES_FAULTS), `desport-uw2` (ultrawide nativo) e os commits "DLSS SR also requests
+present-id" e `f5f44f50` (KYTY_DLSS reserva espaço de endereços para o NGX). `game/config/fg-launch.json`
+aponta para `build/fg-int/_Build/windows/kyty_emulator.exe`. Push: só `desport-fg` está publicado no fork;
+`desport-int` e os branches de funcionalidade são locais.
+**Validado no desport-int:** fumaça (60 fps, red zone sem alertas), S-001 (window-test ok: 60 fps
+minimizada/ciclos/coberta), 120 Hz (logo a 60 flips/s; attract_movie abre no menu e mantém 60 — conferir se
+fecha no gameplay), captura de crash (minidump + pilha via cdbX64 do WinDbg instalado), DLSS SR (pronto,
+modo quality, preset 4.5 M; slots auto cor 0/saída 6/prof 1/vetores 3), ultrawide nativo 3440x1440 (render
+na largura real, HUD ancorado nas bordas; `captures/runs/20261023-230230-uw-native/shot-hud.png`).
+**Descobertas:** overlays de terceiros (RivaTuner/Afterburner, OBS, Steam, Epic) se injetam como camadas
+Vulkan e quebram com o Streamline → launcher desliga por env (DISABLE_RTSS_LAYER etc.). Saída do TAA do jogo
+= 2560x1440 (= render): o upscale para 4K é uma passada separada depois do TAA; para DLSS de upscale real é
+preciso achá-la e substituir o par TAA+upscale.
+**Em andamento:** bateria `tools/nightly.ps1 -SoakMinutes 60` (relatório em `captures/nightly/<data>/report.md`);
+agente Opus (dedicado ao ultrawide, pedido do Ronaldo): pillarbox de vídeos (KYTY_ULTRAWIDE_MOVIES) e
+KYTY_ULTRAWIDE_HUD_LAYOUT=16x9 no worktree `build/fg-uw2`; agente Sonnet: `tools/capture.ps1` +
+`tools/capture_report.py` (FrameCapture via KYTY_LIVE_FILE, marca o TAA e as passadas que leem a saída dele).
+**Próximos passos:** (1) ler o relatório da bateria; (2) capturar um quadro para achar a passada de upscale
+pós-TAA (DLSS de upscale real) e validar vídeos/menus no ultrawide; (3) juntar pillarbox/HUD_LAYOUT;
+(4) KYTY_FAULT_CLASSIFY numa sessão para decidir sobre MEM_WRITE_WATCH; (5) DLSS fase B (SR + geração de
+quadros com tokens compartilhados); (6) lotes B do upstream conforme `docs/UPSTREAM_TRIAGE.md`.
+**Agentes:** até 2; Sonnet para operacional, Opus para complexo/exploratório; agentes não compilam nem rodam
+o jogo, trabalham em worktrees próprios e eu compilo/testo/junto.
+
 ## Engine FrameGen (ADR-008) — 2026-10-23
 - Import: upstream `f2455c87` + árvore da v1.3 do ceremony88 (`87183c6d`), compilado com o
   `build-windows.cmd` deles (clang-cl, -O3 -march=native, ThinLTO, PGO). Execução: `tools/run.ps1
