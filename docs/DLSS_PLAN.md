@@ -19,6 +19,10 @@ do ceremony88); nenhum dado do jogo.
 - O SDK traz `nvngx_dlss.dll` / `nvngx_dlssg.dll` **310.9.1** (a mesma versão do bbport-windows, cujo
   `_DLSS5_Backup` guarda essas originais: o DLSS 5 do bbport é troca de DLL/preset sobre o 310.x).
 
+## Preferência do Ronaldo (2026-10-23)
+- **DLLs do DLSS 4.5** (linha 310.x, transformer de 2ª geração, presets M/L) como padrão, em vez de
+  trocar para DLSS 5. Confirmar na integração que a 310.9.1 do SDK é 4.5 e expor o preset.
+
 ## O que falta
 1. **DLSS Super Resolution / DLAA no lugar do TAA do jogo.**
    - Ponto de inserção: a própria dispatch de TAA. Com `KYTY_RENDER_HEIGHT` baixo, o TAA do jogo já é
