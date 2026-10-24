@@ -236,3 +236,36 @@ Cada correção (PLAN.md §1.2 regra 7) entra aqui antes do commit, no formato:
 - Verificação: depois pendente (soak de 30 min com o lote). Sem regressão: fumaça `20261023-230748-nightly-smoke`
   (60 fps de mediana) e janela `20261023-230950-nightly-window` (ok), já sobre `desport-int`.
 - Candidato a upstream: não (já é do upstream).
+
+## FIX-013 — Handle de .bk2 deixado aberto prendia o fps no vblank durante o gameplay (2026-10-24)
+- Fase / área: 7 (fps) / vídeo e ritmo; `desport-int` `c6fbfebd` (`src/loader/desport.cpp`, `src/kernel/fileSystem.cpp`).
+- Sintoma: com `KYTY_FPS_LIMIT=0` o gameplay ficava preso em 60 fps (`DES_FPS_LIMIT stats ... between_vblanks=0 movie_hold=1`).
+- Evidência antes: `captures/runs/20261024-004217-perf-ab-FPS`, média de 60,2 fps, `movie_hold on` no `attract_movie.bk2` sem `off`.
+- Causa: o jogo deixa o handle do `attract_movie.bk2` aberto quando a entrada interrompe o vídeo. O contador de vídeos abertos
+  nunca voltava a 0, e o `KYTY_FPS_LIMIT`/ritmo de vídeo continuavam segurando os flips no tick do vblank.
+- Mudança: `MovieFileRead` em `KernelRead`/`KernelPread`. Um .bk2 que ficou 3 s sem leitura deixa de contar como vídeo
+  tocando (`MoviePlaying`, `MovieFlipFloor`). Antes da primeira leitura vista, vale só a contagem de abertos.
+- Verificação: `captures/runs/20261024-014935-perf-ab-FPS`, média de 71,7 fps, p50 de 13,07 ms, `movie_hold=0`,
+  `between_vblanks=2126`.
+- Candidato a upstream: não (o ritmo de vídeo e o limite de fps são do desport).
+
+## FIX-014 — Build do readback antecipado: barreiras com construtor que o vk-hpp do projeto não tem (2026-10-24)
+- Fase / área: 4 / renderer; `desport-int` `967b5def` (`bufferCache.cpp`).
+- Sintoma e evidência antes: build de `desport-next` falhou, com 4 erros de `vk::MemoryBarrier` em `bufferCache.cpp:1198-1204`.
+- Causa e mudança: o projeto compila o vk-hpp sem construtores de struct; as máscaras passam a ser preenchidas por campo.
+- Verificação: build 0. Smoke `captures/runs/20261024-002734-next-smoke`: HUD em 69 s, sem crash.
+- Candidato a upstream: não.
+
+## FIX-015 — Ultrawide: HUD 16:9 não instalava e o pillarbox de vídeo nunca casava (2026-10-24)
+- Fase / área: 7 (ultrawide) / loader e renderer; `desport-int` `63239b16`.
+- Sintoma e evidência antes: `captures/runs/20261024-024245-uw-movies-hud` mostrava `hud_layout skipped: could not allocate the
+  wrapper near the program` e nenhum `movie_pillarbox draw`.
+- Causa: (1) o wrapper ficava em base+0x8101000, mas reserva em endereço fixo no Windows exige alinhamento de 64 KiB;
+  (2) o filtro comparava `yscale*2` com a altura, só que o `yscale` do viewport é negativo.
+- Mudança: wrapper em base+0x8110000; comparação por |yscale|. Novo caso para vídeo 16:9 encostado à esquerda
+  (centraliza) e log `movie_pillarbox unmatched` para diagnóstico. O pillarbox passou a ser opcional
+  (`KYTY_ULTRAWIDE_MOVIES=pillarbox`): com `KYTY_ULTRAWIDE_HUD=native` o filtro casou com a composição da UI (textura
+  3840x2160), não com o vídeo, que o jogo desenha 16:9 a partir da borda esquerda do espaço da UI.
+- Verificação: `captures/runs/*uw-movies-hud2` mostra `hud_layout applied: UI layout rectangle at most 16:9, centred`.
+  Vídeos ainda à esquerda em ultrawide (`captures/uw-shots/`). Pendente: achar o desenho do vídeo com `tools/capture.ps1`.
+- Candidato a upstream: não.
