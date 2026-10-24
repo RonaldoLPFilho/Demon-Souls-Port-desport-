@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-only
+﻿# SPDX-License-Identifier: GPL-2.0-only
 <#
 .SYNOPSIS
     Teste longo automático (PLAN.md Fase 5): o jogo sozinho por N minutos, com crash, memória e fps.
@@ -24,7 +24,9 @@ param(
     [string]$Label = '',
     [string]$Launch = 'game/config/fg-launch.json',
     [string]$Save = 'user/saves-backup/kyty-fg-20261023-2050',
-    [int]$StartupSeconds = 300
+    [int]$StartupSeconds = 300,
+    # Variáveis de ambiente para o run.ps1 (aplicadas aqui antes do Start-Job: o job herda o ambiente do pai).
+    [hashtable]$Env = @{}
 )
 
 Set-StrictMode -Version 2.0
@@ -44,6 +46,7 @@ if (Test-Path -LiteralPath $saveDst) { Remove-Item -LiteralPath $saveDst -Recurs
 Copy-Item -LiteralPath $saveSrc -Destination $saveDst -Recurse
 
 # 2. Execução instrumentada.
+foreach ($k in $Env.Keys) { [Environment]::SetEnvironmentVariable([string]$k, [string]$Env[$k]) }
 $timeout = $Minutes * 60 + $StartupSeconds + 120
 $started = Get-Date
 $runJob = Start-Job -ScriptBlock {
