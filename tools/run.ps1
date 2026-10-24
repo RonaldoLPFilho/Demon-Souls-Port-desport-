@@ -49,6 +49,9 @@ param(
     [switch]$Trace,
     # Configuração de lançamento (JSON: environment, flags e, opcionais, kyty_exe e work_dir relativos à raiz).
     [string]$Launch = '',
+    # Log do engine em Silent (testes longos: o log completo do engine FrameGen cresce ~80 MB/min);
+    # as linhas DES_* e SLOW Frame continuam no stdout.txt, que a triagem também lê.
+    [switch]$Quiet,
     # Liga os contadores de desempenho no log (DES_STATS=1 -> DES_COUNTERS, DES_STAT, DES_STAT_ADDR).
     [switch]$Stats,
     # Monta e grava o comando em run.json sem executar.
@@ -181,6 +184,7 @@ if ($Launch) {
     }
     if ($launchInfo.PSObject.Properties['work_dir'] -and -not $WorkDir) { $WorkDir = Join-Path $Root $launchInfo.work_dir }
 }
+if ($Quiet) { $Flags = @($Flags) + @('--printf-direction', 'Silent') }
 # No PowerShell 5.1 um array JSON vazio vira um elemento vazio; descarta-os.
 $Flags = @(@($gameFlags) + @($Flags) | Where-Object { $_ -ne $null -and "$_" -ne '' })
 
@@ -321,6 +325,7 @@ Write-Host ''
 Write-Host "Resultado: $($run.result)  código: $($run.exit_code)  duração: $($run.duration_sec) s"
 Write-Host "Memória: pico privada $($run.memory.peak_private_mb) MB, pico working set $($run.memory.peak_working_set_mb) MB"
 Write-Host "Pasta: $RunDir"
+if ($Quiet -and -not (Test-Path -LiteralPath $logFile)) { New-Item -ItemType File -Path $logFile | Out-Null }
 if (-not (Test-Path -LiteralPath $logFile)) {
     Write-Host 'log.txt não foi criado; veja stdout.txt e stderr.txt.' -ForegroundColor Yellow
     exit 1

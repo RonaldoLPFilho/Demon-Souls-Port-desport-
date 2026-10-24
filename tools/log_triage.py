@@ -206,6 +206,17 @@ def triage(target):
     if (run_dir / 'run.json').exists():
         run = json.loads((run_dir / 'run.json').read_text(encoding='utf-8-sig'))
     report = parse_log(log)
+    # Linhas DES_* também vão para o stdout (o engine desport-fg as emite nos dois): com o log em
+    # Silent só o stdout.txt as tem. Junta sem duplicar.
+    stdout = run_dir / 'stdout.txt'
+    if stdout.exists():
+        extra = parse_log(stdout)
+        seen = {m['name'] for m in report['milestones']}
+        report['milestones'] += [m for m in extra['milestones'] if m['name'] not in seen]
+        report['milestones'].sort(key=lambda m: m['t_ms'])
+        for key in ('fps', 'counters', 'stats', 'stat_addrs'):
+            if not report[key]:
+                report[key] = extra[key]
     report['run'] = run
     report['memory'] = memory_summary(run_dir / 'memory.csv')
     report['calls'] = calls_summary(run_dir / 'calls.json')

@@ -48,7 +48,7 @@ $timeout = $Minutes * 60 + $StartupSeconds + 120
 $started = Get-Date
 $runJob = Start-Job -ScriptBlock {
     param($root, $launch, $label, $timeout)
-    & (Join-Path $root 'tools/run.ps1') -Launch $launch -Label $label -TimeoutSec $timeout -Stats *> $null
+    & (Join-Path $root 'tools/run.ps1') -Launch $launch -Label $label -TimeoutSec $timeout -Stats -Quiet *> $null
 } -ArgumentList $Root, $Launch, $Label, $timeout
 
 # A pasta da execução aparece logo que o run.ps1 começa.

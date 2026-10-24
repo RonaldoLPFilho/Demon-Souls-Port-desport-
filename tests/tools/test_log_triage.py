@@ -97,6 +97,17 @@ class TriageTests(unittest.TestCase):
             self.assertIn('3 janelas: mínimo 3.0, mediana 5.0, máximo 40.0', text)
             self.assertIn("0′ 4.0, 1′ 40.0", text)
 
+    def test_des_lines_from_stdout(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'log.txt').write_text('DES_MILESTONE process_started t=10 title=X\n', encoding='utf-8')
+            (run / 'stdout.txt').write_text('DES_MILESTONE process_started t=10 title=X\n'
+                                            'DES_MILESTONE flip_1 t=500 source=cpu\n'
+                                            'DES_FPS t=5000 fps=59.9\n', encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            self.assertEqual([m['name'] for m in report['milestones']], ['process_started', 'flip_1'])
+            self.assertEqual(report['fps'], [(5000, 59.9)])
+
     def test_hitches_from_stdout(self):
         with tempfile.TemporaryDirectory() as root:
             run = make_run(root)
