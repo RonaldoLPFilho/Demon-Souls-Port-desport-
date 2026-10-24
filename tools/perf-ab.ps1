@@ -112,6 +112,8 @@ $Experiments = [ordered]@{
     COAL = @{ Desc = 'GTS + KYTY_SUBMIT_COALESCE=1, vblank 120'; Env = [ordered]@{ KYTY_GPU_TIMESTAMPS = '1'; KYTY_SUBMIT_COALESCE = '1'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
     COALE = @{ Desc = 'COAL + SIGNALS=each, vblank 120'; Env = [ordered]@{ KYTY_GPU_TIMESTAMPS = '1'; KYTY_SUBMIT_COALESCE = '1'; KYTY_SUBMIT_COALESCE_SIGNALS = 'each'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
     COALN = @{ Desc = 'KYTY_SUBMIT_COALESCE=1 sem timestamps, vblank 120'; Env = [ordered]@{ KYTY_SUBMIT_COALESCE = '1'; KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
+    R1080 = @{ Desc = 'render 1920x1080 (KYTY_ULTRAWIDE=1920x1080 RENDER=1 HUD=native), vblank 120'; Env = [ordered]@{ KYTY_ULTRAWIDE = '1920x1080'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native'; KYTY_GPU_TIMESTAMPS = '1' }; Vblank = '120' }
+    R720 = @{ Desc = 'render 1280x720, vblank 120'; Env = [ordered]@{ KYTY_ULTRAWIDE = '1280x720'; KYTY_ULTRAWIDE_RENDER = '1'; KYTY_ULTRAWIDE_HUD = 'native'; KYTY_GPU_TIMESTAMPS = '1' }; Vblank = '120' }
     FPS  = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=0 (sem teto), SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '0' }; Vblank = '60'; Probe = $true }
     FPS60 = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=60, SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '60' }; Vblank = '60'; Probe = $true }
 }
