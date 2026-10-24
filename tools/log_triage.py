@@ -35,6 +35,7 @@ MILESTONE_RE = re.compile(r'^DES_MILESTONE (\S+) t=(\d+)(?: (.*))?$')
 FPS_RE = re.compile(r'^DES_FPS t=(\d+) fps=([\d.]+)$')
 SLOW_CALL_RE = re.compile(r'^DES_SLOW (.*)$')
 MEM_RE = re.compile(r'^DES_MEM t=(\d+) name=(\S+) bytes=(\d+) count=(\d+)$')
+FAULTS_RE = re.compile(r'^DES_FAULTS (.*)$')
 CRASH_RE = re.compile(r'^DES_CRASH (.*)$')
 STATS_RE = re.compile(r'^(DES_COUNTERS|DES_STAT|DES_STAT_ADDR) (.*)$')
 LOADING_RE = re.compile(r'^Loading: (.+)$')
@@ -63,10 +64,29 @@ def parse_crash(text):
     return fields
 
 
+FAULT_KEYS = ('write_direct', 'write_flexible', 'write_pooled', 'write_other', 'read', 'other',
+              'window', 'restore', 'invalidate', 'readback', 'guest', 'gpu_thread')
+
+
+def faults_summary(windows):
+    """DES_FAULTS (contagens por janela de 5 s) -> totais, por segundo e porcentagens; None sem linhas."""
+    if not windows:
+        return None
+    totals = {k: sum(w.get(k, 0) for w in windows) for k in FAULT_KEYS}
+    t0, t1 = windows[0].get('t', 0), windows[-1].get('t', 0)
+    seconds = max((t1 - t0) / 1000.0 + 5.0, 5.0)  # a primeira janela termina em t0 e dura 5 s
+    writes = sum(totals[k] for k in FAULT_KEYS[:4])
+    faults = writes + totals['read'] + totals['other']
+    outcomes = sum(totals[k] for k in ('window', 'restore', 'invalidate', 'readback'))
+    threads = totals['guest'] + totals['gpu_thread']
+    return dict(totals=totals, seconds=seconds, writes=writes, faults=faults, outcomes=outcomes, threads=threads,
+                windows=len(windows))
+
+
 def parse_log(path):
     text = path.read_text(encoding='utf-8', errors='replace')
     lines = text.splitlines()
-    report = dict(lines=len(lines), milestones=[], fps=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], crashes=[], modules=[], error=None, host_exception=None,
+    report = dict(lines=len(lines), milestones=[], fps=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], crashes=[], fault_windows=[], modules=[], error=None, host_exception=None,
                   stub_calls={}, stubbed_at_link=0, vulkan={}, warnings={})
     pending_module = None
     for i, line in enumerate(lines):
@@ -76,6 +96,8 @@ def parse_log(path):
             report['fps'].append((int(m.group(1)), float(m.group(2))))
         elif m := SLOW_CALL_RE.match(line):
             report['slow_calls'].append(dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv))
+        elif m := FAULTS_RE.match(line):
+            report['fault_windows'].append({k: int(v) for k, v in (kv.split('=', 1) for kv in m.group(1).split() if '=' in kv)})
         elif m := CRASH_RE.match(line):
             report['crashes'].append(parse_crash(m.group(1)))
         elif m := MEM_RE.match(line):
@@ -260,12 +282,13 @@ def triage(target):
         seen = {m['name'] for m in report['milestones']}
         report['milestones'] += [m for m in extra['milestones'] if m['name'] not in seen]
         report['milestones'].sort(key=lambda m: m['t_ms'])
-        for key in ('fps', 'slow_calls', 'counters', 'stats', 'stat_addrs', 'mem_samples', 'crashes'):
+        for key in ('fps', 'slow_calls', 'counters', 'stats', 'stat_addrs', 'mem_samples', 'crashes', 'fault_windows'):
             if not report[key]:
                 report[key] = extra[key]
     report['run'] = run
     report['memory'] = memory_summary(run_dir / 'memory.csv')
     report['mem_categories'] = mem_by_category(report['mem_samples'])
+    report['faults'] = faults_summary(report['fault_windows'])
     report['dumps'] = sorted(p.name for p in run_dir.glob('*.dmp'))
     report['calls'] = calls_summary(run_dir / 'calls.json')
     report['game_log'] = game_log_summary(run_dir)
@@ -465,6 +488,33 @@ def render(report):
     else:
         L.append('- Sem memory.csv.')
     L.append('')
+    faults = report.get('faults')
+    if faults:
+        t = faults['totals']
+        L.append('## Faults (DES_FAULTS)\n')
+        L.append(f"- {faults['windows']} janelas de 5 s ({faults['seconds']:.0f} s): {faults['faults']} faults, "
+                 f"{faults['faults'] / faults['seconds']:.0f}/s; escritas {faults['writes']} "
+                 f"({faults['writes'] / faults['seconds']:.0f}/s)\n")
+        L.append('| Categoria | Total | por segundo | % |')
+        L.append('|---|---:|---:|---:|')
+        def row(name, key, base):
+            pct = f"{100.0 * t[key] / base:.1f}" if base else '—'
+            L.append(f"| {name} | {t[key]} | {t[key] / faults['seconds']:.1f} | {pct} |")
+        L.append('| **Escrita, por memória (% das escritas)** | | | |')
+        for name, key in (('direta (view da seção)', 'write_direct'), ('flexível (privada)', 'write_flexible'),
+                          ('pooled', 'write_pooled'), ('outra', 'write_other')):
+            row(name, key, faults['writes'])
+        L.append('| **Leitura e outros (% dos faults)** | | | |')
+        row('leitura (NOACCESS)', 'read', faults['faults'])
+        row('execução/desconhecido', 'other', faults['faults'])
+        L.append('| **Resultado (% dos resultados)** | | | |')
+        for name, key in (('janela de escrita', 'window'), ('RestoreIfUnwatched', 'restore'),
+                          ('invalidação buffer+textura', 'invalidate'), ('readback', 'readback')):
+            row(name, key, faults['outcomes'])
+        L.append('| **Thread (% dos faults)** | | | |')
+        row('guest', 'guest', faults['threads'])
+        row('thread de GPU do emulador', 'gpu_thread', faults['threads'])
+        L.append('')
     if report.get('crashes') or report.get('dumps'):
         L.append('## Crash (DES_CRASH)\n')
         for c in report.get('crashes') or []:

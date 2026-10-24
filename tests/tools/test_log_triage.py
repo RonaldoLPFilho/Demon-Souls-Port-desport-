@@ -235,6 +235,36 @@ class TriageTests(unittest.TestCase):
             self.assertEqual((report['crashes'], report['dumps']), ([], []))
             self.assertNotIn('DES_CRASH', log_triage.render(report))
 
+    def test_faults_section(self):
+        lines = [
+            'DES_FAULTS t=5000 write_direct=300 write_flexible=100 write_pooled=0 write_other=0 read=0 other=0 '
+            'window=250 restore=10 invalidate=140 readback=0 guest=400 gpu_thread=0',
+            'DES_FAULTS t=10000 write_direct=100 write_flexible=500 write_pooled=0 write_other=0 read=20 other=0 '
+            'window=300 restore=0 invalidate=300 readback=20 guest=600 gpu_thread=20',
+        ]
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'stdout.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            f = report['faults']
+            self.assertEqual((f['windows'], f['faults'], f['writes']), (2, 1020, 1000))
+            self.assertAlmostEqual(f['seconds'], 10.0)
+            self.assertEqual(f['totals']['write_direct'], 400)
+            self.assertEqual(f['totals']['gpu_thread'], 20)
+            text = log_triage.render(report)
+            self.assertIn('## Faults (DES_FAULTS)', text)
+            self.assertIn('1020 faults, 102/s', text)
+            self.assertIn('| direta (view da seção) | 400 | 40.0 | 40.0 |', text)
+            self.assertIn('| flexível (privada) | 600 | 60.0 | 60.0 |', text)
+            self.assertIn('| leitura (NOACCESS) | 20 | 2.0 | 2.0 |', text)
+            self.assertIn('| janela de escrita | 550 | 55.0 | 53.9 |', text)
+
+    def test_no_faults_section_without_des_faults(self):
+        with tempfile.TemporaryDirectory() as root:
+            report, _ = log_triage.triage(make_run(root))
+            self.assertIsNone(report['faults'])
+            self.assertNotIn('DES_FAULTS', log_triage.render(report))
+
     def test_no_mem_section_without_des_mem(self):
         with tempfile.TemporaryDirectory() as root:
             report, _ = log_triage.triage(make_run(root))
