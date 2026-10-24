@@ -538,6 +538,17 @@ function Build-Launch($s, [string]$PatchPath = '') {
         $envVars['KYTY_DLSS'] = [string]$s.dlss
         if ($s.dlssPreset -and $s.dlssPreset -ne 'default') { $envVars['KYTY_DLSS_PRESET'] = [string]$s.dlssPreset } else { $envVars.Remove('KYTY_DLSS_PRESET') }
     } else { $envVars.Remove('KYTY_DLSS'); $envVars.Remove('KYTY_DLSS_PRESET') }
+    # desport: DLSS com upscale real (render na fração do modo, reconstrução até a resolução da janela; FIX-016). O render
+    # separado da saída vem do mesmo mecanismo do ultrawide, também em 16:9. DLAA (render = saída) não precisa.
+    $envVars.Remove('KYTY_DLSS_UPSCALE')
+    if ($s.dlss -and $s.dlss -notin @('off', 'dlaa')) {
+        $envVars['KYTY_DLSS_UPSCALE'] = '2'
+        if (-not $envVars.Contains('KYTY_ULTRAWIDE')) {
+            $envVars['KYTY_ULTRAWIDE'] = ([string]$s.resolution).Trim().ToLower()
+            $envVars['KYTY_ULTRAWIDE_RENDER'] = '1'
+            $envVars['KYTY_ULTRAWIDE_HUD'] = 'native'
+        }
+    }
     if ([int]$s.frameGen -gt 0) { $envVars['KYTY_FRAMEGEN'] = "$([int]$s.frameGen)" } else { $envVars.Remove('KYTY_FRAMEGEN') }
 
     # desport: cache de pipelines do driver persistente: chave = sha256 do exe, salvo se o JSON base ou o ambiente já a definem.
