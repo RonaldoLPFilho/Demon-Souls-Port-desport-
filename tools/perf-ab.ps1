@@ -119,7 +119,7 @@ $Experiments = [ordered]@{
     FPS60 = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=60, SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '60' }; Vblank = '60'; Probe = $true }
 }
 function Use-Probe($Exp) { return ($SpeedProbe.IsPresent -or ($Exp.ContainsKey('Probe') -and $Exp.Probe)) }
-$Plan = if ($Only.Count) { @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { $_.Trim() }) } else { @($Experiments.Keys) }
+$Plan = @(if (@($Only).Count) { @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { $_.Trim() }) } else { @($Experiments.Keys) })  # @(): um só item não vira escalar
 foreach ($id in $Plan) {
     if (-not $Experiments.Contains($id)) { throw "experimento desconhecido: $id (use: $(@($Experiments.Keys) -join ', '))" }
 }
