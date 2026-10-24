@@ -19,10 +19,15 @@
 
     Variáveis aplicadas: KYTY_DLSS e KYTY_DLSS_PRESET (só com DLSS ligado e preset não padrão),
     KYTY_FRAMEGEN=<quadros gerados por quadro renderizado: 2x=1, 3x=2, 4x=3>, KYTY_RENDER_HEIGHT,
-    KYTY_PRESENT_ASPECT=fit (16:9 com barras), KYTY_ULTRAWIDE=<largura>x<altura> (a proporção da resolução escolhida
+    KYTY_PRESENT_ASPECT=fit (16:9 com barras), KYTY_ULTRAWIDE=<largura>x<altura> + KYTY_ULTRAWIDE_RENDER=1 + KYTY_ULTRAWIDE_HUD=native|16x9 (ultrawide nativo: render na proporção da
+    resolução escolhida e HUD ancorado nas bordas; a opção avançada "HUD em 16:9 centralizado" usa 16x9; a proporção da resolução escolhida
     no setup de render, só 01.007.000, imagem esticada na janela; -LegacyPatch usa o patch --game-patch temporário,
     para engines sem a variável), --vblank-frequency 120 (fps até 120), --fullscreen,
     --screen-width/--screen-height e --console-language.
+
+    "Desativar overlays de terceiros no jogo" (padrão ligada) define, só para o processo do jogo, DISABLE_RTSS_LAYER=1,
+    DISABLE_VULKAN_OBS_CAPTURE=1, DISABLE_VK_LAYER_VALVE_steam_overlay_1=1 e EOS_OVERLAY_DISABLE_VULKAN_WIN64=1 (as chaves
+    disable_environment das camadas Vulkan implícitas do RivaTuner/Afterburner, OBS, Steam e Epic, que quebram junto com o Streamline).
 
     -DryRun não cria janela nenhuma: imprime o JSON de lançamento montado e a linha de comando.
 
@@ -95,10 +100,20 @@ $DlssModes = @(
 $DlssPresets = @(
     @('default', 'Padrão (DLSS 4.5)'), @('J', 'J'), @('K', 'K'), @('L', 'L'), @('M', 'M'))
 
+# Chaves disable_environment das camadas Vulkan implícitas instaladas (RivaTuner/Afterburner, OBS, Steam, Epic): definidas só no
+# processo do jogo (o run.ps1 as aplica e remove), elas quebram junto com o Streamline (crash dentro do vulkan-1.dll).
+$OverlayEnv = [ordered]@{
+    DISABLE_RTSS_LAYER                      = '1'
+    DISABLE_VULKAN_OBS_CAPTURE              = '1'
+    DISABLE_VK_LAYER_VALVE_steam_overlay_1  = '1'
+    EOS_OVERLAY_DISABLE_VULKAN_WIN64        = '1'
+}
+
 function Get-Defaults {
     [ordered]@{
         game = ''; resolution = '2560x1440'; fullscreen = $false; aspect = 'auto'; language = 17
         fps = 60; renderHeight = 0; dlss = 'off'; dlssPreset = 'default'; frameGen = 0; fullLog = $false
+        ultrawideHud16x9 = $false; disableOverlays = $true
     }
 }
 
@@ -235,14 +250,22 @@ function Build-Launch($s, [string]$PatchPath = '') {
     $script:ultrawidePatch = $null
     if ($plan.mode -eq 'fit') { $envVars['KYTY_PRESENT_ASPECT'] = 'fit' } else { $envVars.Remove('KYTY_PRESENT_ASPECT') }
     $envVars.Remove('KYTY_ULTRAWIDE')
+    $envVars.Remove('KYTY_ULTRAWIDE_RENDER'); $envVars.Remove('KYTY_ULTRAWIDE_HUD')
     if ($plan.mode -eq 'ultrawide') {
         if ($LegacyPatch -and $PatchPath) {
             $script:ultrawidePatch = New-UltrawidePatch $plan.ratio
             Set-Flag '--game-patch' $PatchPath
         } else {
-            $envVars['KYTY_ULTRAWIDE'] = ([string]$s.resolution).Trim().ToLower() # desport: o engine acha a constante 16/9 pelos bytes
+            # desport: ultrawide nativo: o engine acha a constante 16/9 pelos bytes, renderiza na proporção (a largura vem da
+            # altura de KYTY_RENDER_HEIGHT/DLSS) e ancora o HUD nas bordas (native) ou o deixa em 16:9 centralizado (16x9).
+            $envVars['KYTY_ULTRAWIDE'] = ([string]$s.resolution).Trim().ToLower()
+            $envVars['KYTY_ULTRAWIDE_RENDER'] = '1'
+            $envVars['KYTY_ULTRAWIDE_HUD'] = $(if ($s.ultrawideHud16x9) { '16x9' } else { 'native' })
         }
     }
+    if ($plan.mode -ne 'ultrawide' -or ($LegacyPatch -and $PatchPath)) { $envVars.Remove('KYTY_ULTRAWIDE_RENDER'); $envVars.Remove('KYTY_ULTRAWIDE_HUD') }
+    # desport: overlays de terceiros fora do processo do jogo.
+    foreach ($key in $OverlayEnv.Keys) { if ($s.disableOverlays) { $envVars[$key] = $OverlayEnv[$key] } else { $envVars.Remove($key) } }
     $rh = [int]$s.renderHeight
     if ($rh -gt 0 -and $rh -ne 1440) { $envVars['KYTY_RENDER_HEIGHT'] = "$rh" } else { $envVars.Remove('KYTY_RENDER_HEIGHT') }
 
@@ -357,6 +380,8 @@ function Read-Controls {
     $s.dlssPreset = Get-Pair $u.preset $DlssPresets
     $s.frameGen = Get-Pair $u.fg $FrameGenModes
     $s.fullLog = $u.log.Checked
+    $s.ultrawideHud16x9 = $u.hud16.Checked
+    $s.disableOverlays = $u.overlays.Checked
 }
 
 # Escreve $script:s nos controles.
@@ -377,6 +402,8 @@ function Write-Controls {
     Select-Pair $u.preset $DlssPresets $s.dlssPreset
     Select-Pair $u.fg $FrameGenModes $s.frameGen
     $u.log.Checked = [bool]$s.fullLog
+    $u.hud16.Checked = [bool]$s.ultrawideHud16x9
+    $u.overlays.Checked = [bool]$s.disableOverlays
     $script:loading = $false
     Update-GameStatus
     Update-Enabled
@@ -402,7 +429,7 @@ function Update-Enabled {
     $u.stop.Enabled = $running
     $u.precompile.Enabled = ($script:gameOk -and -not $running)
     $u.preset.Enabled = ((Get-Pair $u.dlss $DlssModes) -ne 'off')
-    foreach ($name in 'game', 'browse', 'res', 'full', 'aspect', 'lang', 'fps', 'render', 'dlss', 'fg', 'log', 'reset') { $u[$name].Enabled = -not $running }
+    foreach ($name in 'game', 'browse', 'res', 'full', 'aspect', 'lang', 'fps', 'render', 'dlss', 'fg', 'log', 'hud16', 'overlays', 'reset') { $u[$name].Enabled = -not $running }
 }
 
 function Set-Status([string]$text, $color = $null) {
@@ -471,7 +498,7 @@ $form.Text = "Demon's Souls para PC - launcher do desport"
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
-$form.ClientSize = New-Object System.Drawing.Size(600, 600)
+$form.ClientSize = New-Object System.Drawing.Size(600, 656)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $u = $script:ui
 
@@ -486,7 +513,7 @@ $g1.Controls.AddRange(@($u.game, $u.browse, $u.gameStatus))
 
 # Imagem
 $g2 = New-Object System.Windows.Forms.GroupBox
-$g2.Text = 'Imagem'; $g2.Location = New-Object System.Drawing.Point(12, 100); $g2.Size = New-Object System.Drawing.Size(576, 150)
+$g2.Text = 'Imagem'; $g2.Location = New-Object System.Drawing.Point(12, 100); $g2.Size = New-Object System.Drawing.Size(576, 180)
 $u.res = New-Combo 190 22 250 ($Resolutions) 'DropDown'
 $u.full = New-Object System.Windows.Forms.CheckBox
 $u.full.Text = 'Tela cheia'; $u.full.Location = New-Object System.Drawing.Point(456, 22); $u.full.Size = New-Object System.Drawing.Size(110, 24)
@@ -495,7 +522,11 @@ $u.render = New-Combo 190 82 250 $RenderHeights
 $u.lang = New-Object System.Windows.Forms.ComboBox
 $u.lang.Location = New-Object System.Drawing.Point(190, 112); $u.lang.Size = New-Object System.Drawing.Size(250, 24); $u.lang.DropDownStyle = 'DropDownList'
 foreach ($n in $Languages) { [void]$u.lang.Items.Add($n) }
+$u.hud16 = New-Object System.Windows.Forms.CheckBox
+$u.hud16.Text = 'Avançado: HUD em 16:9 centralizado (ultrawide nativo)'
+$u.hud16.Location = New-Object System.Drawing.Point(12, 144); $u.hud16.Size = New-Object System.Drawing.Size(552, 24)
 $g2.Controls.AddRange(@(
+    $u.hud16,
     (New-Label 'Resolução de saída (janela)' 12 22 175), $u.res, $u.full,
     (New-Label 'Proporção da imagem' 12 52 175), $u.aspect,
     (New-Label 'Resolução de render do 3D' 12 82 175), $u.render,
@@ -503,7 +534,7 @@ $g2.Controls.AddRange(@(
 
 # Desempenho
 $g3 = New-Object System.Windows.Forms.GroupBox
-$g3.Text = 'Desempenho e DLSS (placa NVIDIA RTX)'; $g3.Location = New-Object System.Drawing.Point(12, 256); $g3.Size = New-Object System.Drawing.Size(576, 180)
+$g3.Text = 'Desempenho e DLSS (placa NVIDIA RTX)'; $g3.Location = New-Object System.Drawing.Point(12, 286); $g3.Size = New-Object System.Drawing.Size(576, 208)
 $u.fps = New-Combo 190 22 250 $FpsModes
 $u.dlss = New-Combo 190 52 250 $DlssModes
 $u.preset = New-Combo 190 82 250 $DlssPresets
@@ -511,20 +542,24 @@ $u.fg = New-Combo 190 112 250 $FrameGenModes
 $u.log = New-Object System.Windows.Forms.CheckBox
 $u.log.Text = 'Gravar o log completo do engine (diagnóstico; cresce ~80 MB por minuto)'
 $u.log.Location = New-Object System.Drawing.Point(12, 146); $u.log.Size = New-Object System.Drawing.Size(552, 24)
+$u.overlays = New-Object System.Windows.Forms.CheckBox
+$u.overlays.Text = 'Desativar overlays de terceiros no jogo (RivaTuner/Afterburner, OBS, Steam, Epic)'
+$u.overlays.Location = New-Object System.Drawing.Point(12, 174); $u.overlays.Size = New-Object System.Drawing.Size(552, 24)
 $g3.Controls.AddRange(@(
+    $u.overlays,
     (New-Label 'Taxa de quadros do jogo' 12 22 175), $u.fps,
     (New-Label 'DLSS (super-resolução)' 12 52 175), $u.dlss,
     (New-Label 'Preset do DLSS' 12 82 175), $u.preset,
     (New-Label 'Geração de quadros (DLSS-G)' 12 112 175), $u.fg, $u.log))
 
 # Botões
-$u.play = New-Button 'JOGAR' 12 446 270 44
+$u.play = New-Button 'JOGAR' 12 502 270 44
 $u.play.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
-$u.stop = New-Button 'Parar o jogo' 290 446 120 44
-$u.precompile = New-Button 'Pré-compilar shaders' 12 498 190
-$u.logs = New-Button 'Abrir pasta de logs' 210 498 190
-$u.reset = New-Button 'Restaurar padrões' 408 498 180
-$u.status = New-Label 'Pronto.' 12 540 576
+$u.stop = New-Button 'Parar o jogo' 290 502 120 44
+$u.precompile = New-Button 'Pré-compilar shaders' 12 554 190
+$u.logs = New-Button 'Abrir pasta de logs' 210 554 190
+$u.reset = New-Button 'Restaurar padrões' 408 554 180
+$u.status = New-Label 'Pronto.' 12 596 576
 $u.status.Size = New-Object System.Drawing.Size(576, 48)
 $u.status.TextAlign = 'TopLeft'
 $form.Controls.AddRange(@($g1, $g2, $g3, $u.play, $u.stop, $u.precompile, $u.logs, $u.reset, $u.status))
@@ -536,7 +571,9 @@ $tip.SetToolTip($u.fps, 'Até 120 fps usa um vblank de 120 Hz; vídeos e cenas a
 $tip.SetToolTip($u.dlss, 'Super-resolução da NVIDIA no lugar do TAA do jogo (RTX 20 ou mais nova).')
 $tip.SetToolTip($u.preset, 'Padrão deixa o engine escolher (DLSS 4.5). J e K são os modelos antigos; L e M, os do DLSS 4.5.')
 $tip.SetToolTip($u.fg, 'Geração de quadros da NVIDIA (DLSS-G): RTX 40 ou mais nova para 2x; 3x e 4x pedem RTX 50.')
-$tip.SetToolTip($u.aspect, 'Ultrawide nativo: campo de visão mais largo na proporção da resolução (só versão 01.007.000); HUD, menus e vídeos ficam esticados na horizontal. 16:9 com barras: sem distorção. Automática: ultrawide quando a resolução é mais larga que 16:9.')
+$tip.SetToolTip($u.hud16, 'Só no ultrawide nativo: o HUD e os menus ficam em 16:9 no centro da tela (KYTY_ULTRAWIDE_HUD=16x9). Sem isto o HUD fica ancorado nas bordas da tela larga.')
+$tip.SetToolTip($u.overlays, 'Define, só para o processo do jogo, as chaves que desligam as camadas Vulkan do RivaTuner/Afterburner, do OBS, da Steam e da Epic: elas quebram junto com o Streamline (crash dentro do vulkan-1.dll ao criar o device). Consequência: o overlay de fps do Afterburner/OBS não aparece no jogo.')
+$tip.SetToolTip($u.aspect, 'Ultrawide nativo: renderiza na proporção da resolução, com campo de visão mais largo e HUD ancorado nas bordas (só versão 01.007.000); vídeos ficam esticados na horizontal. 16:9 com barras: sem distorção. Automática: ultrawide quando a resolução é mais larga que 16:9.')
 
 # Eventos
 $u.browse.Add_Click({

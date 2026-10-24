@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-only
+﻿# SPDX-License-Identifier: GPL-2.0-only
 <#
 .SYNOPSIS
     Monta a pasta de distribuição do desport: descompactar, abrir o launcher, jogar.
@@ -219,6 +219,12 @@ PRIMEIROS PASSOS
 5. Escolha a resolucao, tela cheia, taxa de quadros, DLSS e geracao de quadros e clique em JOGAR.
    Para telas ultrawide (ex.: 3440x1440) use a proporcao "Ultrawide nativo" (campo de visao mais largo; HUD,
    menus e videos ficam esticados na horizontal) ou "16:9 com barras pretas".
+   O ultrawide nativo renderiza na proporcao da tela, com o HUD ancorado nas bordas; a opcao avancada
+   "HUD em 16:9 centralizado" deixa o HUD e os menus em 16:9 no centro.
+6. "Desativar overlays de terceiros no jogo" (ligada por padrao) desliga, so no processo do jogo, as camadas
+   Vulkan do RivaTuner/Afterburner, do OBS, da Steam e da Epic, que quebram junto com o DLSS/Streamline (o jogo
+   fecha ao iniciar). Efeito: o overlay de fps do Afterburner/OBS nao aparece no jogo. Desligue a opcao so se
+   precisar dele e o jogo iniciar normalmente.
 
 ONDE FICA CADA COISA
 - user\launcher-settings.json: suas escolhas do launcher.
