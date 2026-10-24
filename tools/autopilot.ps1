@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-only
+﻿# SPDX-License-Identifier: GPL-2.0-only
 <#
 .SYNOPSIS
     Leva o jogo aberto até o gameplay e o mantém se mexendo (PLAN.md Fase 5, soak).
@@ -134,14 +134,15 @@ while (-not (Window)) {
     if ($clock.Elapsed.TotalSeconds -gt 60) { Say 'janela do emulador não apareceu'; exit 1 }
     Start-Sleep -Milliseconds 500
 }
-$answered = $false; $fogSeen = $false; $earlySkips = 0; $lastSkip = [DateTime]::MinValue; $last = ''; $state = ''
+$hudHits = 0; $answered = $false; $fogSeen = $false; $earlySkips = 0; $lastSkip = [DateTime]::MinValue; $last = ''; $state = ''
 while ($clock.Elapsed.TotalSeconds -lt $StartupSeconds) {
     if (-not (Get-Process kyty_emulator -ErrorAction SilentlyContinue)) { Say 'emulador fechou antes do HUD'; exit 2 }
     $bmp = Capture
     if (-not $bmp) { Start-Sleep -Milliseconds 500; continue }
     try { $state = Get-ScreenState $bmp } finally { $bmp.Dispose() }
     if ($state -ne $last) { Say "estado: $state"; $last = $state }
-    if ($state -eq 'hud') { break }
+    # HUD só vale se repetir em 3 capturas seguidas (~1,5 s): um quadro do vídeo do título já foi lido como HUD aos 5 s.
+    if ($state -eq 'hud') { $hudHits++; if ($hudHits -ge 3) { break }; Start-Sleep -Milliseconds 500; continue } else { $hudHits = 0 }
     if ($state -eq 'prompt') { Press j; $answered = $true; Start-Sleep -Milliseconds 1500; continue }
     if ($state -eq 'menu') { Press j; Start-Sleep -Milliseconds 1500; continue }
     if ($state -eq 'fog') { $fogSeen = $true }
