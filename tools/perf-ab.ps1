@@ -99,6 +99,9 @@ $Experiments = [ordered]@{
     RBQ  = @{ Desc = 'RB + KYTY_READBACK_QUEUE=3 (validação de divergência), vblank 120'; Env = [ordered]@{ KYTY_READBACK_PREFETCH = '1'; KYTY_READBACK_QUEUE = '3' }; Vblank = '120' }
     RB2  = @{ Desc = 'KYTY_READBACK_PREFETCH=2 (snapshot por faixa), vblank 120'; Env = [ordered]@{ KYTY_READBACK_PREFETCH = '2' }; Vblank = '120' }
     RB3  = @{ Desc = 'KYTY_READBACK_PREFETCH=3 (faixa + write-back antecipado + submit), vblank 120'; Env = [ordered]@{ KYTY_READBACK_PREFETCH = '3' }; Vblank = '120' }
+    LAT1 = @{ Desc = 'KYTY_READBACK_LATENCY=1 (contadores de latência), vblank 120'; Env = [ordered]@{ KYTY_READBACK_LATENCY = '1' }; Vblank = '120' }
+    LAT2 = @{ Desc = 'KYTY_READBACK_LATENCY=2 (yield do gráfico para compute pronto), vblank 120'; Env = [ordered]@{ KYTY_READBACK_LATENCY = '2' }; Vblank = '120' }
+    LAT2R = @{ Desc = 'LAT2 + KYTY_READBACK_PREFETCH=2, vblank 120'; Env = [ordered]@{ KYTY_READBACK_LATENCY = '2'; KYTY_READBACK_PREFETCH = '2' }; Vblank = '120' }
     FPS  = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=0 (sem teto), SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '0' }; Vblank = '60'; Probe = $true }
     FPS60 = @{ Desc = 'vblank 60 + KYTY_FPS_LIMIT=60, SpeedProbe'; Env = [ordered]@{ KYTY_FPS_LIMIT = '60' }; Vblank = '60'; Probe = $true }
 }
