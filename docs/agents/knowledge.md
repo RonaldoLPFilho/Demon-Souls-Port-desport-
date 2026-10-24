@@ -77,5 +77,5 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
 ## Regressão e marcos
 - `run.ps1 -Scenario X` sem `-Launch game/config/fg-launch.json` usa o engine antigo; `tools/check.ps1` está assim e com falhas esperadas obsoletas.
 - Marcos DES_MILESTONE: `process_started`, `modules_loaded`, `game_entry`, `first_data_file`, `first_savedata_mount`, `flip_1/60/600/3600`. Não há marco de título, menu ou HUD (o autopilot detecta o HUD por pixels).
-- O save de referência `user/saves-backup/kyty-fg-20261023-2050` não tem localização registrada no jogo.
+- O save de referência `user/saves-backup/kyty-fg-20261023-2050` está provavelmente na primeira área do jogo (tutorial de Boletaria), segundo o Ronaldo ("acho"), sem confirmação por captura.
 - Pico de memória medido: 13,2–14,0 GB (platô de ~13 GB). O limite de 12 GB do PLAN §8.3 precisa ser revisto.
