@@ -176,6 +176,46 @@ class TriageTests(unittest.TestCase):
             self.assertAlmostEqual(report['memory']['growth_mb_per_min'], 0.0, places=6)
             self.assertFalse(report['memory']['alert'])
 
+    def test_mem_categories(self):
+        mib = 1 << 20
+        lines = []
+        # t em ms; 'vma_device_local' cresce 10 MB/min a partir do início, 'guest' fica plano.
+        for minute in range(0, 6):
+            t = minute * 60000 + 5000
+            lines.append(f'DES_MEM t={t} name=process_private bytes={(1000 + 12 * minute) * mib} count=0')
+            lines.append(f'DES_MEM t={t} name=vma_device_local bytes={(200 + 10 * minute) * mib} count=7')
+            lines.append(f'DES_MEM t={t} name=guest_direct_mapped bytes={500 * mib} count=3')
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'stdout.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            cats = report['mem_categories']
+            self.assertEqual(set(cats), {'process_private', 'vma_device_local', 'guest_direct_mapped'})
+            vma = cats['vma_device_local']
+            self.assertAlmostEqual(vma['first_mb'], 200.0)
+            self.assertAlmostEqual(vma['last_mb'], 250.0)
+            self.assertAlmostEqual(vma['peak_mb'], 250.0)
+            self.assertAlmostEqual(vma['slope_mb_per_min'], 10.0, places=3)
+            self.assertEqual(vma['last_count'], 7)
+            self.assertAlmostEqual(cats['guest_direct_mapped']['slope_mb_per_min'], 0.0, places=6)
+            text = log_triage.render(report)
+            self.assertIn('## Memória por categoria (DES_MEM)', text)
+            self.assertIn('| vma_device_local | 200 | 250 | 250 | +10.0 **ALERTA** | 7 |', text)
+            self.assertIn('| guest_direct_mapped | 500 | 500 | 500 | +0.0 | 3 |', text)
+            # process_ vem primeiro
+            self.assertLess(text.index('| process_private |'), text.index('| vma_device_local |'))
+
+    def test_mem_slope_needs_samples_after_warmup(self):
+        cats = log_triage.mem_by_category([(5000, 'a', 1 << 20, 1), (35000, 'a', 2 << 20, 1)])
+        self.assertIsNone(cats['a']['slope_mb_per_min'])
+        self.assertAlmostEqual(cats['a']['peak_mb'], 2.0)
+
+    def test_no_mem_section_without_des_mem(self):
+        with tempfile.TemporaryDirectory() as root:
+            report, _ = log_triage.triage(make_run(root))
+            self.assertEqual(report['mem_categories'], {})
+            self.assertNotIn('DES_MEM', log_triage.render(report))
+
     def test_cli_writes_triage_md(self):
         with tempfile.TemporaryDirectory() as root:
             run = make_run(root)

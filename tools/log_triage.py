@@ -26,6 +26,7 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
+MEM_SLOPE_SKIP_SEC = 120.0  # DES_MEM: a inclinação só usa amostras depois dos 2 primeiros minutos
 WARMUP_SEC = 30.0           # memória: ignora o carregamento inicial ao medir a inclinação
 GROWTH_ALERT_MB_PER_MIN = 5.0
 TOP = 10
@@ -33,6 +34,7 @@ TOP = 10
 MILESTONE_RE = re.compile(r'^DES_MILESTONE (\S+) t=(\d+)(?: (.*))?$')
 FPS_RE = re.compile(r'^DES_FPS t=(\d+) fps=([\d.]+)$')
 SLOW_CALL_RE = re.compile(r'^DES_SLOW (.*)$')
+MEM_RE = re.compile(r'^DES_MEM t=(\d+) name=(\S+) bytes=(\d+) count=(\d+)$')
 STATS_RE = re.compile(r'^(DES_COUNTERS|DES_STAT|DES_STAT_ADDR) (.*)$')
 LOADING_RE = re.compile(r'^Loading: (.+)$')
 BASE_RE = re.compile(r'^base_vaddr\s*=\s*0x([0-9a-fA-F]+)')
@@ -52,7 +54,7 @@ def normalize(line):
 def parse_log(path):
     text = path.read_text(encoding='utf-8', errors='replace')
     lines = text.splitlines()
-    report = dict(lines=len(lines), milestones=[], fps=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], modules=[], error=None, host_exception=None,
+    report = dict(lines=len(lines), milestones=[], fps=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], modules=[], error=None, host_exception=None,
                   stub_calls={}, stubbed_at_link=0, vulkan={}, warnings={})
     pending_module = None
     for i, line in enumerate(lines):
@@ -62,6 +64,8 @@ def parse_log(path):
             report['fps'].append((int(m.group(1)), float(m.group(2))))
         elif m := SLOW_CALL_RE.match(line):
             report['slow_calls'].append(dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv))
+        elif m := MEM_RE.match(line):
+            report['mem_samples'].append((int(m.group(1)), m.group(2), int(m.group(3)), int(m.group(4))))
         elif m := STATS_RE.match(line):
             fields = dict(kv.split('=', 1) for kv in m.group(2).split() if '=' in kv)
             key = {'DES_COUNTERS': 'counters', 'DES_STAT': 'stats', 'DES_STAT_ADDR': 'stat_addrs'}[m.group(1)]
@@ -98,6 +102,31 @@ def locate(address, modules):
         if m['base'] is not None and m['size'] and m['base'] <= address < m['base'] + m['size']:
             return f"{Path(m['path']).name}+{address - m['base']:#x}"
     return None
+
+
+def mem_by_category(samples):
+    """DES_MEM (t_ms, nome, bytes, contagem) -> por categoria: valor inicial, final, pico e inclinação.
+
+    A inclinação (MB/min) é a reta de mínimos quadrados das amostras depois de MEM_SLOPE_SKIP_SEC;
+    None se houver menos de 3 amostras nessa faixa ou menos de 1 minuto entre elas.
+    """
+    by_name = {}
+    for t_ms, name, size, count in sorted(samples, key=lambda x: x[0]):
+        by_name.setdefault(name, []).append((t_ms, size, count))
+    out = {}
+    for name, rows in by_name.items():
+        late = [(t / 60000.0, b / 1048576.0) for t, b, _ in rows if t >= MEM_SLOPE_SKIP_SEC * 1000]
+        slope = None
+        if len(late) >= 3 and late[-1][0] - late[0][0] >= 1.0:
+            n = len(late)
+            mean_t = sum(t for t, _ in late) / n
+            mean_v = sum(v for _, v in late) / n
+            den = sum((t - mean_t) ** 2 for t, _ in late)
+            slope = sum((t - mean_t) * (v - mean_v) for t, v in late) / den if den else None
+        out[name] = dict(first_mb=rows[0][1] / 1048576.0, last_mb=rows[-1][1] / 1048576.0,
+                         peak_mb=max(b for _, b, _ in rows) / 1048576.0, slope_mb_per_min=slope,
+                         last_count=rows[-1][2], samples=len(rows))
+    return out
 
 
 def memory_summary(path):
@@ -217,11 +246,12 @@ def triage(target):
         seen = {m['name'] for m in report['milestones']}
         report['milestones'] += [m for m in extra['milestones'] if m['name'] not in seen]
         report['milestones'].sort(key=lambda m: m['t_ms'])
-        for key in ('fps', 'slow_calls', 'counters', 'stats', 'stat_addrs'):
+        for key in ('fps', 'slow_calls', 'counters', 'stats', 'stat_addrs', 'mem_samples'):
             if not report[key]:
                 report[key] = extra[key]
     report['run'] = run
     report['memory'] = memory_summary(run_dir / 'memory.csv')
+    report['mem_categories'] = mem_by_category(report['mem_samples'])
     report['calls'] = calls_summary(run_dir / 'calls.json')
     report['game_log'] = game_log_summary(run_dir)
     report['hitches'] = hitch_summary(run_dir)
@@ -420,6 +450,20 @@ def render(report):
     else:
         L.append('- Sem memory.csv.')
     L.append('')
+    cats = report.get('mem_categories')
+    if cats:
+        L.append('## Memória por categoria (DES_MEM)\n')
+        first = next(iter(cats.values()))
+        L.append(f"- {first['samples']} amostras por categoria; inclinação = MB/min depois dos primeiros "
+                 f"{MEM_SLOPE_SKIP_SEC:.0f} s (— quando não há amostras suficientes)\n")
+        L.append('| Categoria | Inicial (MB) | Final (MB) | Pico (MB) | Inclinação (MB/min) | Contagem final |')
+        L.append('|---|---:|---:|---:|---:|---:|')
+        ordered = sorted(cats.items(), key=lambda kv: (not kv[0].startswith('process_'), -kv[1]['last_mb']))
+        for name, c in ordered:
+            slope = '—' if c['slope_mb_per_min'] is None else f"{c['slope_mb_per_min']:+.1f}"
+            flag = ' **ALERTA**' if c['slope_mb_per_min'] is not None and c['slope_mb_per_min'] > GROWTH_ALERT_MB_PER_MIN else ''
+            L.append(f"| {name} | {c['first_mb']:.0f} | {c['last_mb']:.0f} | {c['peak_mb']:.0f} | {slope}{flag} | {c['last_count']} |")
+        L.append('')
     game = report.get('game_log')
     if game:
         L.append('## Log do jogo (game_logs/)\n')
