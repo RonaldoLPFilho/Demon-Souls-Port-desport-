@@ -43,3 +43,24 @@ do ceremony88); nenhum dado do jogo.
 ## Critério (PLAN.md Fase 7, item 3)
 DLSS SR, DLAA e geração de quadros funcionando no 1-1 e no Nexus, sem artefatos graves de HUD ou de
 objetos em movimento, com fps e latência medidos com e sem cada opção.
+
+## Desenho de implementação (agente, 2026-10-23, só leitura do código)
+- **Inserção:** em `renderCompute.cpp`, logo depois de `CommitBindings` (as transições de layout já estão
+  feitas: storage escrito → `eGeneral`, amostrado → `eShaderReadOnlyOptimal`, profundidade →
+  `eDepthStencilReadOnlyOptimal`). Se `FrameGen::SrActive()` e a dispatch é o TAA: barreira, `EvaluateSr`,
+  barreira, `InvalidateGraphicsState`, e a dispatch original é pulada; se falhar, cai no TAA original.
+- **Streamline:** `sl::kFeatureDLSS` junto do DLSS-G no `slInit`; `g_sr_ready` separado; viewport 1
+  (o DLSS-G usa o 0); `slDLSSSetOptions` só quando mudar; tags `Depth`, `MotionVectors`,
+  `ScalingInputColor` (extent de render), `ScalingOutputColor`, todas `eValidUntilEvaluate`;
+  `slSetConstants` reaproveitando o montador do `BeforePresent` (depth invertido, vetores com câmera e sem
+  jitter, `mvecScale=(-1,-1)` validado no DLSS-G; sinal do jitter ainda não validado).
+- **Fases:** A = só SR (renderer dono dos tokens). B = SR + DLSS-G (um token por quadro do jogo levado em
+  `FrameInputs`; rever PCL/Reflex).
+- **Reset do histórico:** primeiro quadro, mudança de modo/extensão, quadros sem TAA (menus, vídeos),
+  câmera `Held`, salto grande de câmera.
+- **Config:** `KYTY_DLSS=off|dlaa|quality|balanced|performance|ultra_performance`,
+  `KYTY_DLSS_PRESET=default|J|K|L|M`; altura de render derivada do modo quando `KYTY_RENDER_HEIGHT` estiver
+  vazio (Quality 1440 = o padrão do jogo, Balanced 1253, Performance 1080, Ultra 720, DLAA 2160 com o limite
+  de `RenderSizeFor` elevado).
+- **Falta a captura de quadro** (`KYTY_LIVE_FILE` + `capture <dir> 2`, sem lista de hashes) para fixar os
+  slots de cor de entrada, histórico e saída do TAA e o formato da cor; duas rodadas (1440 e 1080).
