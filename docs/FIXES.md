@@ -269,3 +269,29 @@ Cada correção (PLAN.md §1.2 regra 7) entra aqui antes do commit, no formato:
 - Verificação: `captures/runs/*uw-movies-hud2` mostra `hud_layout applied: UI layout rectangle at most 16:9, centred`.
   Vídeos ainda à esquerda em ultrawide (`captures/uw-shots/`). Pendente: achar o desenho do vídeo com `tools/capture.ps1`.
 - Candidato a upstream: não.
+
+## FIX-016 — DLSS SR sem upscale real: render = saída do TAA, sem ganho de fps (2026-10-24)
+- Fase / área: 4 (gráficos) / DLSS SR (`engine/src/local/frame-gen.cpp`, `renderCompute.cpp`, `renderDraw.cpp`,
+  `descriptors.cpp`, `render.h`); branch `desport-dlssu` (`0725318b`, a partir de `desport-int` `4cca362f`).
+- Sintoma: com `KYTY_DLSS=quality` o DLSS substitui o TAA com entrada = saída = 2560x1440 (DLAA na prática); o upscale
+  para a saída continua no bilinear do jogo. Medido: 1080p de render dá 86 fps contra 65 em 1440p (limite de GPU).
+- Evidência antes: `captures/runs/20261024-023549-dlss-fg-combined` (`DLSS: ... 2560x1440 -> 2560x1440`).
+- Causa: o TAA (cs `a44e580f4f0cfb2b`) escreve na resolução de render; quem leva para a saída é a composição da cena
+  (ps `95318d27a44b0dd5`, captura `20261024-040425-uw-capture` #225), que amostra a saída do TAA num alvo do tamanho da saída.
+- Mudança: `KYTY_DLSS_UPSCALE=1` (padrão desligado). O TAA do jogo roda; logo depois o DLSS lê as mesmas entradas e
+  escreve uma imagem própria do tamanho da saída; a draw que amostra a saída do TAA num alvo maior passa a amostrar essa
+  imagem (1:1). Tamanho da saída aprendido dessa draw; `KYTY_DLSS_UPSCALE_PS=<hex>` restringe. Logs: `DES_DLSS ...
+  upscale=1` no boot, `DES_DLSS upscale=1 render=WxH output=WxH composite_ps=...` na primeira troca, `DLSS upscale: TAA
+  output ... read by ps ...` (até 16 leitores).
+- Primeira execução do modo 1 (`captures/runs/20261024-074737-perf-ab-DUQ`, `...-075504-perf-ab-DUP`): a composição #225 escreve
+  em resolução de render (`read by ps 0x95318d27a44b0dd5 into 1704x960: kept`); 98,9 fps (quality) e 109 (performance) contra 71
+  nativo, mas o DLSS não reconstrói (render baixo mais esticado). O render→saída é a passada final #257 (ps `37db6bd367380e9c`).
+- Modo 2 (`041a73f7`, `KYTY_DLSS_UPSCALE=2`): a composição é gravada de novo numa imagem do tamanho da saída lendo a imagem do
+  DLSS (viewport e scissor escalados) e a passada final amostra essa imagem; draws da cadeia não viram draws de tabela/XPR nativo.
+- Verificação (desport-int `62228e13`, gameplay confirmado por mais de 36 mil `DES_STAT readback` a cada 5 s, 0 crash):
+  `captures/runs/20261024-082050-perf-ab-DU2Q`: `DES_DLSS upscale=2 render=1704x960 output=2560x1440 final_ps=0x1ad8b5870fe4d3ec`
+  e `substituted by the output-size composite` a cada quadro, a **99,5 fps**. `...-082816-perf-ab-DU2P` (1280x720 → 2560x1440)
+  dá **111,7 fps**; nativo 1440p dá 71. Capturas em tela cheia (`captures/dlss-shots/du2q-t95.png` contra `native-t95.png`):
+  imagem nítida e no lugar, sem recorte nem deslocamento. O HUD fica um pouco maior com `KYTY_ULTRAWIDE_HUD=native` em 16:9.
+  Pendente: conferência visual em movimento pelo Ronaldo, sinal do jitter, LOD bias negativo, DLSS-G combinado.
+- Candidato a upstream: não.
