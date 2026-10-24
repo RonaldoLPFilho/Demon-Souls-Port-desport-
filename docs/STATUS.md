@@ -6,6 +6,18 @@ v1.3 + camada desport, branch `desport-fg` do fork). Fases 0–2 concluídas; Fa
 
 **Meta do Ronaldo (2026-10-23):** o port do Demon's Souls tão estável quanto o bbport do Bloodborne.
 
+## Manhã de 2026-10-24 — desempenho
+
+- **Diagnóstico:** em gameplay a GPU fica ~89% ocupada (`KYTY_GPU_TIMESTAMPS`, `KYTY_GPU_PROFILE`; o "20%" do gerenciador
+  de tarefas engana), então o limite é trabalho de GPU e a resolução pesa (1440p: 65 fps; 1080p: 86).
+- **DLSS com upscale real** (FIX-016, `KYTY_DLSS_UPSCALE=2`, já no launcher): quality dá **99,5 fps** e performance **111,7**,
+  contra 71 em 1440p nativo. Soak de 30 min com DLSS quality, upscale, geração de quadros e `KYTY_FPS_LIMIT=display`
+  (`captures/runs/*soak30-full`): 0 crash, 69,5 fps renderizados (teto 144/2), ~139 na tela, 300/300 quadros marcados.
+- Testado sem ganho (desligado por padrão, documentado em `docs/agents/knowledge.md`): readback antecipado (modos 1–3),
+  yield de compute, fila de compute separada, agrupamento de submits, wave64 em lockstep, chaves do FrameGen.
+- Pendente com você: imagem do DLSS em movimento (jitter, nitidez das texturas, HUD um pouco maior em 16:9), velocidade do jogo
+  acima de 60 fps, vídeos no ultrawide.
+
 ## Noite de 2026-10-24 (trabalho autônomo) — resumo
 
 - `desport-int` (`279661f1`, publicada no fork) integra: ultrawide (HUD 16:9 opcional), `KYTY_FPS_LIMIT`, `DES_FRAME`,
