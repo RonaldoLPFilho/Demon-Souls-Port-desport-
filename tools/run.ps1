@@ -219,6 +219,19 @@ $argString = ($argList | ForEach-Object { Quote-Arg $_ }) -join ' '
 $exeHash = $null
 if (Test-Path -LiteralPath $KytyExe) { $exeHash = (Get-FileHash -LiteralPath $KytyExe -Algorithm SHA256).Hash.ToLower() }
 
+# desport: cache de pipelines do driver persistente. O engine só o usa com KYTY_DRIVER_CACHE_KEY = 64 hex minúsculos (sha256
+# do exe). Precedência: environment do JSON > ambiente do processo > automático (sha256 do exe).
+$driverKey = $null
+$driverKeySource = 'none'
+if ($launchEnv.ContainsKey('KYTY_DRIVER_CACHE_KEY') -and $launchEnv['KYTY_DRIVER_CACHE_KEY']) {
+    $driverKey = $launchEnv['KYTY_DRIVER_CACHE_KEY']; $driverKeySource = 'launch_json'
+} elseif ($env:KYTY_DRIVER_CACHE_KEY) {
+    $driverKey = $env:KYTY_DRIVER_CACHE_KEY; $driverKeySource = 'process_env'
+} elseif ($exeHash) {
+    $driverKey = $exeHash; $driverKeySource = 'auto_exe_sha256'
+    $launchEnv['KYTY_DRIVER_CACHE_KEY'] = $driverKey
+}
+
 $run = [ordered]@{
     run_id      = $name
     label       = $Label
@@ -234,6 +247,8 @@ $run = [ordered]@{
     stats       = [bool]$Stats
     launch      = $Launch
     launch_environment = $launchEnv
+    driver_cache_key = $driverKey
+    driver_cache_key_source = $driverKeySource
     engine_git  = Get-GitInfo (Join-Path $Root 'engine')
     desport_git = Get-GitInfo $Root
     host        = [ordered]@{ machine = $env:COMPUTERNAME; os = [Environment]::OSVersion.VersionString }

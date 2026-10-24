@@ -7,7 +7,7 @@
     Janela WinForms (português do Brasil) na frente de tools/run.ps1, no estilo do launcher do
     bbport. Opções: pasta do jogo (confere eboot.bin e sce_sys\param.json: PPSA01341, versão
     01.007.000; avisa se for outra), resolução de saída (inclui 3440x1440 ultrawide), proporção (ultrawide
-    nativo, 16:9 com barras pretas ou esticar), tela cheia, idioma do console, fps (60 ou até 120), resolução de render,
+    nativo, 16:9 com barras pretas ou esticar), tela cheia, idioma do console, limite de fps (taxa do monitor, 60, sem limite ou número), resolução de render,
     DLSS (modo e preset; padrão DLSS 4.5), geração de quadros (2x/3x/4x) e os botões Jogar,
     Parar, Pré-compilar shaders, Abrir pasta de logs e Restaurar padrões.
 
@@ -22,7 +22,9 @@
     KYTY_PRESENT_ASPECT=fit (16:9 com barras), KYTY_ULTRAWIDE=<largura>x<altura> + KYTY_ULTRAWIDE_RENDER=1 + KYTY_ULTRAWIDE_HUD=native|16x9 (ultrawide nativo: render na proporção da
     resolução escolhida e HUD ancorado nas bordas; a opção avançada "HUD em 16:9 centralizado" usa 16x9; a proporção da resolução escolhida
     no setup de render, só 01.007.000, imagem esticada na janela; -LegacyPatch usa o patch --game-patch temporário,
-    para engines sem a variável), --vblank-frequency 120 (fps até 120), --fullscreen,
+    para engines sem a variável), --vblank-frequency 60 sempre (120 só no modo legado explícito), KYTY_FPS_LIMIT=display|60|0|<n> (com geração de
+    quadros e "taxa do monitor": taxa/(1+quadros gerados)), KYTY_DRIVER_CACHE_KEY=<sha256 do exe> (cache de pipelines do driver
+    persistente; só se o JSON base e o ambiente não a definem; chaves antigas em <work_dir>\_PipelineCache\local são só avisadas), --fullscreen,
     --screen-width/--screen-height e --console-language.
 
     "Desativar overlays de terceiros no jogo" (padrão ligada) define, só para o processo do jogo, DISABLE_RTSS_LAYER=1,
@@ -92,7 +94,8 @@ $AspectModes = @(
     @('ultrawide', 'Ultrawide nativo (campo de visão mais largo)'),
     @('fit', '16:9 com barras pretas'),
     @('stretch', 'Esticar a imagem 16:9'))
-$FpsModes = @(@(60, '60 fps (como no console)'), @(120, 'Até 120 fps'))
+# desport: limite de fps (KYTY_FPS_LIMIT): o vblank fica em 60 e o engine limita os flips; 'display' = taxa do monitor.
+$FpsModes = @(@('display', 'Taxa do monitor (padrão)'), @('60', '60 fps (como no console)'), @('unlimited', 'Sem limite'), @('custom', 'Número...'))
 $FrameGenModes = @(@(0, 'Desligada'), @(1, '2x (1 quadro gerado)'), @(2, '3x (2 quadros gerados)'), @(3, '4x (3 quadros gerados)'))
 $DlssModes = @(
     @('off', 'Desligado'), @('dlaa', 'DLAA (qualidade nativa)'), @('quality', 'Qualidade'), @('balanced', 'Equilibrado'),
@@ -112,7 +115,7 @@ $OverlayEnv = [ordered]@{
 function Get-Defaults {
     [ordered]@{
         game = ''; resolution = '2560x1440'; fullscreen = $false; aspect = 'auto'; language = 17
-        fps = 60; renderHeight = 0; dlss = 'off'; dlssPreset = 'default'; frameGen = 0; fullLog = $false
+        fpsMode = 'display'; fpsCustom = 90; legacyVblank120 = $false; renderHeight = 0; dlss = 'off'; dlssPreset = 'default'; frameGen = 0; fullLog = $false
         ultrawideHud16x9 = $false; disableOverlays = $true
     }
 }
@@ -223,6 +226,60 @@ function New-UltrawidePatch([double]$Ratio) {
     }
 }
 
+# ---------------------------------------------------------------- limite de fps e cache de driver
+
+# Taxa de atualização (Hz) do monitor, pela placa de vídeo (0 se não der para saber). Só serve para o limite com geração de quadros.
+function Get-MonitorHz {
+    try {
+        $hz = Get-CimInstance -ClassName Win32_VideoController -ErrorAction Stop |
+            Where-Object { $_.CurrentRefreshRate -gt 0 } | ForEach-Object { [int]$_.CurrentRefreshRate } | Sort-Object -Descending | Select-Object -First 1
+        if ($hz) { return [int]$hz }
+    } catch {}
+    return 0
+}
+
+# Valor de KYTY_FPS_LIMIT para as escolhas ('' no modo legado). Define $script:fpsNote com uma explicação curta.
+function Get-FpsLimitValue($s) {
+    $script:fpsNote = ''
+    if ($s.legacyVblank120) { $script:fpsNote = 'Modo legado: vblank 120, sem limite de fps (o jogo pode andar mais rápido que o normal).'; return '' }
+    switch ([string]$s.fpsMode) {
+        '60' { return '60' }
+        'unlimited' { return '0' }
+        'custom' { return "$([math]::Min([math]::Max([int]$s.fpsCustom, 20), 1000))" }
+        default {
+            $fg = [int]$s.frameGen
+            if ($fg -le 0) { return 'display' }
+            # Com geração de quadros o monitor mostra renderizados x (1 + gerados): limita os renderizados.
+            $hz = Get-MonitorHz
+            if ($hz -le 0) { $hz = 60; $script:fpsNote = 'Taxa do monitor desconhecida: assumi 60 Hz para o limite com geração de quadros.' }
+            $lim = [math]::Max([int][math]::Floor($hz / (1 + $fg)), 20)
+            if (-not $script:fpsNote) { $script:fpsNote = "Limite de $lim fps renderizados (monitor $hz Hz, geração de quadros com $fg gerado(s) por quadro)." }
+            return "$lim"
+        }
+    }
+}
+
+# Exe do engine e pasta de trabalho do JSON base.
+function Get-DriverCacheInfo($base) {
+    $exe = if ($base.PSObject.Properties['kyty_exe']) { Join-Path $Root ([string]$base.kyty_exe) } else { '' }
+    $work = if ($base.PSObject.Properties['work_dir']) { Join-Path $Root ([string]$base.work_dir) } else { Join-Path $Root 'user\kyty' }
+    [pscustomobject]@{ exe = $exe; work = $work }
+}
+
+# Chaves de cache de driver antigas (pastas em <work>\_PipelineCache\local\ que não são a chave atual): só mede, nunca apaga.
+function Get-StaleDriverCache([string]$Work, [string]$CurrentKey) {
+    $dir = Join-Path $Work '_PipelineCache\local'
+    $result = [pscustomobject]@{ count = 0; bytes = [int64]0; total = [int64]0; dir = $dir }
+    if (-not (Test-Path -LiteralPath $dir)) { return $result }
+    foreach ($d in Get-ChildItem -LiteralPath $dir -Directory -ErrorAction SilentlyContinue) {
+        $m = Get-ChildItem -LiteralPath $d.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum
+        $size = if ($m.Sum) { [int64]$m.Sum } else { [int64]0 }
+        $result.total += $size
+        if ($d.Name -ne $CurrentKey) { $result.count++; $result.bytes += $size }
+    }
+    return $result
+}
+
 # ---------------------------------------------------------------- JSON de lançamento
 
 # Parte de game/config/fg-launch.json e aplica as escolhas (mesmo formato do arquivo base).
@@ -271,7 +328,12 @@ function Build-Launch($s, [string]$PatchPath = '') {
 
     # Idioma e fps
     Set-Flag '--console-language' "$([int]$s.language)"
-    Set-Flag '--vblank-frequency' "$(if ([int]$s.fps -ge 120) { 120 } else { 60 })"
+    # desport: vblank sempre 60 (o passo de tempo do jogo tem piso de 1/60 s: vblank 120 acelera o jogo); o limite de fps
+    # vai em KYTY_FPS_LIMIT. O modo legado (vblank 120) só com a opção explícita.
+    $limit = Get-FpsLimitValue $s
+    $script:fpsLimitShown = $limit
+    Set-Flag '--vblank-frequency' "$(if ($s.legacyVblank120) { 120 } else { 60 })"
+    if ($limit -ne '') { $envVars['KYTY_FPS_LIMIT'] = $limit } else { $envVars.Remove('KYTY_FPS_LIMIT') }
 
     # DLSS (KYTY_DLSS/KYTY_DLSS_PRESET) e geração de quadros (KYTY_FRAMEGEN)
     if ($s.dlss -and $s.dlss -ne 'off') {
@@ -279,6 +341,24 @@ function Build-Launch($s, [string]$PatchPath = '') {
         if ($s.dlssPreset -and $s.dlssPreset -ne 'default') { $envVars['KYTY_DLSS_PRESET'] = [string]$s.dlssPreset } else { $envVars.Remove('KYTY_DLSS_PRESET') }
     } else { $envVars.Remove('KYTY_DLSS'); $envVars.Remove('KYTY_DLSS_PRESET') }
     if ([int]$s.frameGen -gt 0) { $envVars['KYTY_FRAMEGEN'] = "$([int]$s.frameGen)" } else { $envVars.Remove('KYTY_FRAMEGEN') }
+
+    # desport: cache de pipelines do driver persistente: chave = sha256 do exe, salvo se o JSON base ou o ambiente já a definem.
+    # (O run.ps1 faz o mesmo quando ninguém define; aqui a chave entra no JSON para aparecer no -DryRun.)
+    $script:cacheKey = ''
+    $script:cacheNote = ''
+    $ci = Get-DriverCacheInfo $base
+    if ($envVars.Contains('KYTY_DRIVER_CACHE_KEY')) { $script:cacheKey = $envVars['KYTY_DRIVER_CACHE_KEY'] }
+    elseif ($env:KYTY_DRIVER_CACHE_KEY) { $script:cacheKey = $env:KYTY_DRIVER_CACHE_KEY }
+    elseif ($ci.exe -and (Test-Path -LiteralPath $ci.exe)) {
+        $script:cacheKey = (Get-FileHash -LiteralPath $ci.exe -Algorithm SHA256).Hash.ToLower()
+        $envVars['KYTY_DRIVER_CACHE_KEY'] = $script:cacheKey
+    }
+    if ($script:cacheKey) {
+        $stale = Get-StaleDriverCache $ci.work $script:cacheKey
+        if ($stale.count -gt 0) {
+            $script:cacheNote = ('Cache de driver: {0} chave(s) antiga(s) ocupam {1:N1} GB em {2} (nada é apagado; pode remover à mão).' -f $stale.count, ($stale.bytes / 1GB), $stale.dir)
+        }
+    }
 
     $out = [ordered]@{ _source = 'tools/launcher.ps1 sobre game/config/fg-launch.json' }
     foreach ($name in 'kyty_exe', 'work_dir') { if ($base.PSObject.Properties[$name]) { $out[$name] = $base.$name } }
@@ -306,6 +386,8 @@ if ($DryRun) {
     $patchTmp = Join-Path ([System.IO.Path]::GetTempPath()) 'desport-ultrawide-<id>.json'
     $json = (Build-Launch $s $patchTmp) | ConvertTo-Json -Depth 6
     Write-Host "# proporção: $((Get-AspectPlan $s).mode)$(if ($script:aspectNote) { ' - ' + $script:aspectNote })"
+    Write-Host "# fps: KYTY_FPS_LIMIT=$(if ($script:fpsLimitShown) { $script:fpsLimitShown } else { '(não definida)' })$(if ($script:fpsNote) { ' - ' + $script:fpsNote })"
+    Write-Host "# cache de driver: KYTY_DRIVER_CACHE_KEY=$(if ($script:cacheKey) { $script:cacheKey } else { '(não definida; exe não encontrado)' })$(if ($script:cacheNote) { ' - ' + $script:cacheNote })"
     Write-Host '# JSON de lançamento:'
     Write-Output $json
     if ($script:ultrawidePatch) {
@@ -330,6 +412,8 @@ $script:proc = $null
 $script:tmpLaunch = $null
 $script:tmpPatch = $null
 $script:aspectNote = ''
+$script:fpsNote = ''
+$script:cacheNote = ''
 $script:ultrawidePatch = $null
 $script:ui = @{}
 $script:loading = $true
@@ -374,7 +458,9 @@ function Read-Controls {
     $s.fullscreen = $u.full.Checked
     $s.aspect = Get-Pair $u.aspect $AspectModes
     $s.language = [math]::Max($u.lang.SelectedIndex, 0)
-    $s.fps = Get-Pair $u.fps $FpsModes
+    $s.fpsMode = Get-Pair $u.fps $FpsModes
+    $s.fpsCustom = [int]$u.fpsNum.Value
+    $s.legacyVblank120 = $u.legacy.Checked
     $s.renderHeight = Get-Pair $u.render $RenderHeights
     $s.dlss = Get-Pair $u.dlss $DlssModes
     $s.dlssPreset = Get-Pair $u.preset $DlssPresets
@@ -396,7 +482,9 @@ function Write-Controls {
     $u.full.Checked = [bool]$s.fullscreen
     Select-Pair $u.aspect $AspectModes $s.aspect
     $u.lang.SelectedIndex = [math]::Min([math]::Max([int]$s.language, 0), $Languages.Count - 1)
-    Select-Pair $u.fps $FpsModes $s.fps
+    Select-Pair $u.fps $FpsModes $s.fpsMode
+    $u.fpsNum.Value = [math]::Min([math]::Max([int]$s.fpsCustom, 20), 1000)
+    $u.legacy.Checked = [bool]$s.legacyVblank120
     Select-Pair $u.render $RenderHeights $s.renderHeight
     Select-Pair $u.dlss $DlssModes $s.dlss
     Select-Pair $u.preset $DlssPresets $s.dlssPreset
@@ -429,7 +517,8 @@ function Update-Enabled {
     $u.stop.Enabled = $running
     $u.precompile.Enabled = ($script:gameOk -and -not $running)
     $u.preset.Enabled = ((Get-Pair $u.dlss $DlssModes) -ne 'off')
-    foreach ($name in 'game', 'browse', 'res', 'full', 'aspect', 'lang', 'fps', 'render', 'dlss', 'fg', 'log', 'hud16', 'overlays', 'reset') { $u[$name].Enabled = -not $running }
+    $u.fpsNum.Enabled = (-not $running) -and ((Get-Pair $u.fps $FpsModes) -eq 'custom') -and -not $u.legacy.Checked
+    foreach ($name in 'game', 'browse', 'res', 'full', 'aspect', 'lang', 'fps', 'render', 'dlss', 'fg', 'log', 'hud16', 'overlays', 'legacy', 'reset') { $u[$name].Enabled = -not $running }
 }
 
 function Set-Status([string]$text, $color = $null) {
@@ -455,7 +544,8 @@ function Start-Game {
         Save-Settings $script:s
         $runArgs = Get-RunArguments $script:tmpLaunch $script:s
         $script:proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $runArgs -WindowStyle Hidden -PassThru
-        Set-Status ('Rodando... (feche o jogo para voltar; as execuções ficam em captures\runs)' + $(if ($script:aspectNote) { "`n" + $script:aspectNote } else { '' })) ([System.Drawing.Color]::FromArgb(0, 90, 160))
+        $extra = (@($script:aspectNote, $script:fpsNote, $script:cacheNote) | Where-Object { $_ }) -join "`n"
+        Set-Status ('Rodando... (feche o jogo para voltar; as execuções ficam em captures\runs)' + $(if ($extra) { "`n" + $extra } else { '' })) ([System.Drawing.Color]::FromArgb(0, 90, 160))
         $script:ui.timer.Start()
     } catch {
         Set-Status "Erro ao iniciar: $($_.Exception.Message)" ([System.Drawing.Color]::FromArgb(190, 30, 30))
@@ -498,7 +588,7 @@ $form.Text = "Demon's Souls para PC - launcher do desport"
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
-$form.ClientSize = New-Object System.Drawing.Size(600, 656)
+$form.ClientSize = New-Object System.Drawing.Size(600, 696)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $u = $script:ui
 
@@ -534,8 +624,11 @@ $g2.Controls.AddRange(@(
 
 # Desempenho
 $g3 = New-Object System.Windows.Forms.GroupBox
-$g3.Text = 'Desempenho e DLSS (placa NVIDIA RTX)'; $g3.Location = New-Object System.Drawing.Point(12, 286); $g3.Size = New-Object System.Drawing.Size(576, 208)
+$g3.Text = 'Desempenho e DLSS (placa NVIDIA RTX)'; $g3.Location = New-Object System.Drawing.Point(12, 286); $g3.Size = New-Object System.Drawing.Size(576, 236)
 $u.fps = New-Combo 190 22 250 $FpsModes
+$u.fpsNum = New-Object System.Windows.Forms.NumericUpDown
+$u.fpsNum.Location = New-Object System.Drawing.Point(450, 22); $u.fpsNum.Size = New-Object System.Drawing.Size(70, 24)
+$u.fpsNum.Minimum = 20; $u.fpsNum.Maximum = 1000; $u.fpsNum.Value = 90
 $u.dlss = New-Combo 190 52 250 $DlssModes
 $u.preset = New-Combo 190 82 250 $DlssPresets
 $u.fg = New-Combo 190 112 250 $FrameGenModes
@@ -545,21 +638,24 @@ $u.log.Location = New-Object System.Drawing.Point(12, 146); $u.log.Size = New-Ob
 $u.overlays = New-Object System.Windows.Forms.CheckBox
 $u.overlays.Text = 'Desativar overlays de terceiros no jogo (RivaTuner/Afterburner, OBS, Steam, Epic)'
 $u.overlays.Location = New-Object System.Drawing.Point(12, 174); $u.overlays.Size = New-Object System.Drawing.Size(552, 24)
+$u.legacy = New-Object System.Windows.Forms.CheckBox
+$u.legacy.Text = 'Avançado, legado: vblank de 120 Hz em vez do limite (o jogo anda mais rápido)'
+$u.legacy.Location = New-Object System.Drawing.Point(12, 202); $u.legacy.Size = New-Object System.Drawing.Size(552, 24)
 $g3.Controls.AddRange(@(
-    $u.overlays,
-    (New-Label 'Taxa de quadros do jogo' 12 22 175), $u.fps,
+    $u.overlays, $u.legacy, $u.fpsNum,
+    (New-Label 'Limite de fps' 12 22 175), $u.fps,
     (New-Label 'DLSS (super-resolução)' 12 52 175), $u.dlss,
     (New-Label 'Preset do DLSS' 12 82 175), $u.preset,
     (New-Label 'Geração de quadros (DLSS-G)' 12 112 175), $u.fg, $u.log))
 
 # Botões
-$u.play = New-Button 'JOGAR' 12 502 270 44
+$u.play = New-Button 'JOGAR' 12 528 270 44
 $u.play.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
-$u.stop = New-Button 'Parar o jogo' 290 502 120 44
-$u.precompile = New-Button 'Pré-compilar shaders' 12 554 190
-$u.logs = New-Button 'Abrir pasta de logs' 210 554 190
-$u.reset = New-Button 'Restaurar padrões' 408 554 180
-$u.status = New-Label 'Pronto.' 12 596 576
+$u.stop = New-Button 'Parar o jogo' 290 528 120 44
+$u.precompile = New-Button 'Pré-compilar shaders' 12 580 190
+$u.logs = New-Button 'Abrir pasta de logs' 210 580 190
+$u.reset = New-Button 'Restaurar padrões' 408 580 180
+$u.status = New-Label 'Pronto.' 12 622 576
 $u.status.Size = New-Object System.Drawing.Size(576, 48)
 $u.status.TextAlign = 'TopLeft'
 $form.Controls.AddRange(@($g1, $g2, $g3, $u.play, $u.stop, $u.precompile, $u.logs, $u.reset, $u.status))
@@ -567,7 +663,8 @@ $form.Controls.AddRange(@($g1, $g2, $g3, $u.play, $u.stop, $u.precompile, $u.log
 # Dicas
 $tip = New-Object System.Windows.Forms.ToolTip
 $tip.SetToolTip($u.render, 'Altura em que o jogo desenha o 3D (padrão 1440p). Menos pixels = mais fps; a imagem é escalada para a janela.')
-$tip.SetToolTip($u.fps, 'Até 120 fps usa um vblank de 120 Hz; vídeos e cenas avançam um quadro por flip e podem rodar mais rápido.')
+$tip.SetToolTip($u.fps, 'O vblank fica em 60 Hz e o engine limita os quadros (KYTY_FPS_LIMIT). Taxa do monitor: o limite é a taxa da tela (com geração de quadros, taxa / (1 + quadros gerados)). Vídeos e menus seguem o vblank.')
+$tip.SetToolTip($u.legacy, 'Modo antigo: --vblank-frequency 120 sem limite de fps. O passo de tempo do jogo tem piso de 1/60 s, então o jogo acelera. Use só para comparar.')
 $tip.SetToolTip($u.dlss, 'Super-resolução da NVIDIA no lugar do TAA do jogo (RTX 20 ou mais nova).')
 $tip.SetToolTip($u.preset, 'Padrão deixa o engine escolher (DLSS 4.5). J e K são os modelos antigos; L e M, os do DLSS 4.5.')
 $tip.SetToolTip($u.fg, 'Geração de quadros da NVIDIA (DLSS-G): RTX 40 ou mais nova para 2x; 3x e 4x pedem RTX 50.')
@@ -584,6 +681,8 @@ $u.browse.Add_Click({
 })
 $u.game.Add_TextChanged({ if (-not $script:loading) { Update-GameStatus } })
 $u.dlss.Add_SelectedIndexChanged({ if (-not $script:loading) { Update-Enabled } })
+$u.fps.Add_SelectedIndexChanged({ if (-not $script:loading) { Update-Enabled } })
+$u.legacy.Add_CheckedChanged({ if (-not $script:loading) { Update-Enabled } })
 $u.play.Add_Click({ Start-Game })
 $u.stop.Add_Click({ Stop-Game })
 $u.precompile.Add_Click({ Start-Precompile })
