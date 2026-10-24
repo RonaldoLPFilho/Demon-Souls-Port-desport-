@@ -6,6 +6,19 @@ v1.3 + camada desport, branch `desport-fg` do fork). Fases 0–2 concluídas; Fa
 
 **Meta do Ronaldo (2026-10-23):** o port do Demon's Souls tão estável quanto o bbport do Bloodborne.
 
+## Próximo foco (2026-10-24, pedido do Ronaldo): qualidade de imagem
+
+O monitor do Ronaldo é **3440x1440 (21:9)**, a 143 Hz. Todos os testes devem usar essa resolução. Relato da primeira sessão
+com DLSS: imagem bem pior que no PS5 Pro, chão borrado, jogo muito escuro em DLAA, HUD cortado à esquerda e com moldura
+duplicada, vídeos e cutscenes deslocados.
+1. Ultrawide: vídeos e cutscenes centralizados em 16:9 com barras laterais; HUD sem corte (nas bordas ou 16:9 centralizado).
+2. Texturas: anisotropia, LOD bias e streaming de mips (agente em `desport-tex`).
+3. Escuridão no DLAA/DLSS: cor HDR e exposição automática do SR.
+4. DLSS quality feio: render baixo demais (1704x960 de 2560 para 21:9), sem LOD bias negativo. Presets com render mínimo de ~1440p
+   de altura para qualidade.
+5. Comparação lado a lado com o PS5 Pro (prints do Ronaldo) para achar efeitos faltando na emulação.
+A Trilha B (port nativo, Fase 6) continua como caminho para estabilidade; a qualidade gráfica fica no renderer, que o port reaproveita.
+
 ## Manhã de 2026-10-24 — desempenho
 
 - **Diagnóstico:** em gameplay a GPU fica ~89% ocupada (`KYTY_GPU_TIMESTAMPS`, `KYTY_GPU_PROFILE`; o "20%" do gerenciador
