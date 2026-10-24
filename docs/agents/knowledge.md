@@ -93,3 +93,7 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
 - O SpeedProbe (diff de imagem) deu ~44 em todos os modos: não serve para detectar aceleração. Precisa de conferência visual.
 - Boot a frio pode falhar com "could not reserve 13824 MB": falta commit (pagefile de 24 GB, ~38 GB comprometidos com o PC ocioso). O soak espera 15 GB livres.
 - Latência medida (KYTY_READBACK_LATENCY=1, desport-lat): por espera, submit 7 µs, worker 40 µs e **GPU 2,7 ms**, com `lat_gpu_backlog` em torno de 23 submissões na frente na GPU. ~3.500 de 10.700 esperas passam de 4 ms. O gargalo é a fila única: os anéis de compute do guest esperam atrás do trabalho gráfico. O yield (modo 2) não ganha nada (68 fps); com prefetch 2 fica pior. Próximo passo: uma `VkQueue` de compute de verdade para as submissões de compute do guest.
+- Captura ultrawide (`captures/runs/20261024-040425-uw-capture/capture-1/captures.md`, menu/vídeo, HUD=native):
+  - `#255` ps `a6b124d2b1ba4b7e` desenha na camada de UI 3440x1440 (`2824c0000`) amostrando uma RGBA16F 3840x2160. Foi esse que o pillarbox casou; provável superfície do vídeo de fundo.
+  - `#257` ps `37db6bd367380e9c` compõe a cena (`2bc030000`, 3440x1440) num alvo 3840x2160 A2B10G10R10. É a passada final de saída e candidata ao ponto do DLSS de upscale real.
+  - Nas capturas de tela, o vídeo ocupa a faixa esquerda de 2560 px dos 3440.
