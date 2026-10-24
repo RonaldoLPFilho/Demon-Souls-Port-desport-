@@ -41,6 +41,14 @@ $workDir = Join-Path $Root $launchInfo.work_dir
 $saveSrc = Join-Path $Root $Save
 if (-not (Test-Path -LiteralPath $saveSrc)) { throw "save de referência não encontrado: $saveSrc" }
 if (Get-Process kyty_emulator -ErrorAction SilentlyContinue) { throw 'já há um kyty_emulator rodando' }
+# O engine reserva ~13,5 GB de memória direta comprometida de uma vez; logo depois de outro emulador sair o Windows ainda
+# não devolveu o commit e o boot cai com "could not reserve 13824 MB". Espera até 3 min por 15 GB livres.
+for ($i = 0; $i -lt 36; $i++) {
+    $os = Get-CimInstance Win32_OperatingSystem
+    if ($os.FreeVirtualMemory * 1KB -ge 15GB) { break }
+    if ($i -eq 0) { Write-Host ('Aguardando memória comprometida livre ({0:N1} GB)...' -f ($os.FreeVirtualMemory * 1KB / 1GB)) }
+    Start-Sleep -Seconds 5
+}
 
 # 1. Save de referência.
 $saveDst = Join-Path $workDir '_SaveData'

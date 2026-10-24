@@ -147,6 +147,8 @@ foreach ($id in $Plan) {
     $entry = [ordered]@{ id = $id; desc = $e.Desc; run_dir = $null; outcome = 'error'; env = $e.Env; flags = @('--vblank-frequency', $e.Vblank); speed_probe = (Use-Probe $e) }
     try {
         if (Get-Process kyty_emulator -ErrorAction SilentlyContinue) { Write-Host 'kyty_emulator já rodando: encerrando'; Stop-Emulator; Start-Sleep -Seconds 5 }
+        # A memória do processo anterior demora a ser liberada ("could not reserve 13824 MB for guest direct memory").
+        Start-Sleep -Seconds 20
         if ($e.Env.Contains('KYTY_DRIVER_CACHE_KEY')) {
             $entry.desc += $(if (Test-Path -LiteralPath $driverCacheDir) { ' [cache dessa chave já existia ao iniciar]' } else { ' [cache dessa chave não existia ao iniciar]' })
         }
@@ -174,7 +176,7 @@ foreach ($id in $Plan) {
 }
 
 # Relatório (Python; reaproveita tools/log_triage.py).
-$manifest = [ordered]@{ date = $Stamp; minutes = $Minutes; warmup_sec = $WarmupSec; cache_key = $CacheKey; cache_note = 'C1 frio (chave nova), C2 quente (mesma chave); as outras rodadas usam o cache do driver da chave automática do run.ps1 (sha256 do exe)'; launch = $Launch; runs = @($runs) }
+$manifest = [ordered]@{ date = $Stamp; minutes = $Minutes; warmup_sec = $WarmupSec; cache_key = $CacheKey; cache_note = 'C1 frio (chave nova), C2 quente (mesma chave); as outras rodadas usam o cache do driver da chave automática do run.ps1 (sha256 do exe)'; launch = $Launch; runs = $runs.ToArray() }
 $manifestPath = Join-Path $OutDir 'manifest.json'
 ($manifest | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 $reportPath = Join-Path $OutDir 'report.md'
