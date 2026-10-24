@@ -19,13 +19,20 @@
 
     Variáveis aplicadas: KYTY_DLSS e KYTY_DLSS_PRESET (só com DLSS ligado e preset não padrão),
     KYTY_FRAMEGEN=<quadros gerados por quadro renderizado: 2x=1, 3x=2, 4x=3>, KYTY_RENDER_HEIGHT,
-    KYTY_PRESENT_ASPECT=fit (16:9 com barras), KYTY_ULTRAWIDE=<largura>x<altura> + KYTY_ULTRAWIDE_RENDER=1 + KYTY_ULTRAWIDE_HUD=native|16x9 (ultrawide nativo: render na proporção da
-    resolução escolhida e HUD ancorado nas bordas; a opção avançada "HUD em 16:9 centralizado" usa 16x9; a proporção da resolução escolhida
+    KYTY_PRESENT_ASPECT=fit (16:9 com barras), KYTY_ULTRAWIDE=<largura>x<altura> + KYTY_ULTRAWIDE_RENDER=1 + KYTY_ULTRAWIDE_HUD=native (ultrawide nativo: render na proporção da
+    resolução escolhida e HUD ancorado nas bordas; a opção avançada "HUD em 16:9 centralizado" mantém native e acrescenta
+    KYTY_ULTRAWIDE_HUD_LAYOUT=16x9, o mecanismo novo; o antigo KYTY_ULTRAWIDE_HUD=16x9 deixa o HUD desalinhado/duplicado; a proporção da resolução escolhida
     no setup de render, só 01.007.000, imagem esticada na janela; -LegacyPatch usa o patch --game-patch temporário,
     para engines sem a variável), --vblank-frequency 60 sempre (120 só no modo legado explícito), KYTY_FPS_LIMIT=display|60|0|<n> (com geração de
     quadros e "taxa do monitor": taxa/(1+quadros gerados)), KYTY_DRIVER_CACHE_KEY=<sha256 do exe> (cache de pipelines do driver
     persistente; só se o JSON base e o ambiente não a definem; chaves antigas em <work_dir>\_PipelineCache\local são só avisadas), --fullscreen,
     --screen-width/--screen-height e --console-language.
+
+    Grupo "Qualidade de imagem": KYTY_TEX_ANISO=16 ("Filtragem anisotrópica 16x", padrão ligada), KYTY_LOD_STATS_MIP_BIAS=1|2
+    (texturas mais nítidas, mips mais finos; padrão +1; "Padrão" = ausente), KYTY_TEX_DLSS_BIAS=auto (LOD bias automático; só tem efeito
+    com DLSS qualidade/equilibrado/desempenho; padrão ligada), KYTY_DLSS_ALPHA=1 (avançado: DLSS reconstrói alpha; padrão desligada) e
+    "Variáveis extras (avançado)" no formato CHAVE=valor;CHAVE2=valor (chave só A-Z, 0-9 e _; itens inválidos são ignorados com aviso no
+    status), aplicadas por último no environment do JSON de lançamento, vencendo as demais opções.
 
     "Desativar overlays de terceiros no jogo" (padrão ligada) define, só para o processo do jogo, DISABLE_RTSS_LAYER=1,
     DISABLE_VULKAN_OBS_CAPTURE=1, DISABLE_VK_LAYER_VALVE_steam_overlay_1=1 e EOS_OVERLAY_DISABLE_VULKAN_WIN64=1 (as chaves
@@ -100,6 +107,7 @@ $FrameGenModes = @(@(0, 'Desligada'), @(1, '2x (1 quadro gerado)'), @(2, '3x (2 
 $DlssModes = @(
     @('off', 'Desligado'), @('dlaa', 'DLAA (qualidade nativa)'), @('quality', 'Qualidade'), @('balanced', 'Equilibrado'),
     @('performance', 'Desempenho'), @('ultra_performance', 'Desempenho máximo'))
+$MipBiasModes = @(@(0, 'Padrão'), @(1, '+1 (mais nítido)'), @(2, '+2 (ainda mais nítido)'))
 $DlssPresets = @(
     @('default', 'Padrão (DLSS 4.5)'), @('J', 'J'), @('K', 'K'), @('L', 'L'), @('M', 'M'))
 
@@ -117,7 +125,24 @@ function Get-Defaults {
         game = ''; resolution = '2560x1440'; fullscreen = $false; aspect = 'auto'; language = 17
         fpsMode = 'display'; fpsCustom = 90; legacyVblank120 = $false; renderHeight = 0; dlss = 'off'; dlssPreset = 'default'; frameGen = 0; fullLog = $false
         ultrawideHud16x9 = $false; disableOverlays = $true
+        # desport: qualidade de imagem (KYTY_TEX_ANISO, KYTY_LOD_STATS_MIP_BIAS, KYTY_TEX_DLSS_BIAS, KYTY_DLSS_ALPHA, extras)
+        aniso16 = $true; mipBias = 1; dlssTexBias = $true; dlssAlpha = $false; extraEnv = ''
     }
+}
+
+# desport: variáveis extras "CHAVE=valor;CHAVE2=valor": chave só [A-Z0-9_]; itens inválidos são ignorados e viram aviso.
+function Read-ExtraEnv([string]$Text) {
+    $pairs = New-Object System.Collections.Generic.List[object]
+    $warn = New-Object System.Collections.Generic.List[string]
+    foreach ($item in ($Text -split ';')) {
+        $t = $item.Trim()
+        if ($t -eq '') { continue }
+        $eq = $t.IndexOf('=')
+        $key = if ($eq -gt 0) { $t.Substring(0, $eq).Trim() } else { '' }
+        if ($eq -lt 1 -or $key -cnotmatch '^[A-Z0-9_]+$') { $warn.Add("'$t'"); continue }
+        $pairs.Add([pscustomobject]@{ key = $key; value = $t.Substring($eq + 1).Trim() })
+    }
+    [pscustomobject]@{ pairs = $pairs.ToArray(); warn = $(if ($warn.Count -gt 0) { 'Variáveis extras ignoradas (use CHAVE=valor, chave só A-Z, 0-9 e _): ' + ($warn -join ', ') } else { '' }) }
 }
 
 function Read-LocalIni([string]$Path) {
@@ -505,7 +530,7 @@ function Build-Launch($s, [string]$PatchPath = '') {
     $script:ultrawidePatch = $null
     if ($plan.mode -eq 'fit') { $envVars['KYTY_PRESENT_ASPECT'] = 'fit' } else { $envVars.Remove('KYTY_PRESENT_ASPECT') }
     $envVars.Remove('KYTY_ULTRAWIDE')
-    $envVars.Remove('KYTY_ULTRAWIDE_RENDER'); $envVars.Remove('KYTY_ULTRAWIDE_HUD')
+    $envVars.Remove('KYTY_ULTRAWIDE_RENDER'); $envVars.Remove('KYTY_ULTRAWIDE_HUD'); $envVars.Remove('KYTY_ULTRAWIDE_HUD_LAYOUT')
     if ($plan.mode -eq 'ultrawide') {
         if ($LegacyPatch -and $PatchPath) {
             $script:ultrawidePatch = New-UltrawidePatch $plan.ratio
@@ -515,10 +540,13 @@ function Build-Launch($s, [string]$PatchPath = '') {
             # altura de KYTY_RENDER_HEIGHT/DLSS) e ancora o HUD nas bordas (native) ou o deixa em 16:9 centralizado (16x9).
             $envVars['KYTY_ULTRAWIDE'] = ([string]$s.resolution).Trim().ToLower()
             $envVars['KYTY_ULTRAWIDE_RENDER'] = '1'
-            $envVars['KYTY_ULTRAWIDE_HUD'] = $(if ($s.ultrawideHud16x9) { '16x9' } else { 'native' })
+            # desport: HUD em 16:9 centralizado = KYTY_ULTRAWIDE_HUD=native + KYTY_ULTRAWIDE_HUD_LAYOUT=16x9 (o 16x9 antigo de
+            # KYTY_ULTRAWIDE_HUD deixa o HUD desalinhado/duplicado).
+            $envVars['KYTY_ULTRAWIDE_HUD'] = 'native'
+            if ($s.ultrawideHud16x9) { $envVars['KYTY_ULTRAWIDE_HUD_LAYOUT'] = '16x9' }
         }
     }
-    if ($plan.mode -ne 'ultrawide' -or ($LegacyPatch -and $PatchPath)) { $envVars.Remove('KYTY_ULTRAWIDE_RENDER'); $envVars.Remove('KYTY_ULTRAWIDE_HUD') }
+    if ($plan.mode -ne 'ultrawide' -or ($LegacyPatch -and $PatchPath)) { $envVars.Remove('KYTY_ULTRAWIDE_RENDER'); $envVars.Remove('KYTY_ULTRAWIDE_HUD'); $envVars.Remove('KYTY_ULTRAWIDE_HUD_LAYOUT') }
     # desport: overlays de terceiros fora do processo do jogo.
     foreach ($key in $OverlayEnv.Keys) { if ($s.disableOverlays) { $envVars[$key] = $OverlayEnv[$key] } else { $envVars.Remove($key) } }
     $rh = [int]$s.renderHeight
@@ -569,7 +597,17 @@ function Build-Launch($s, [string]$PatchPath = '') {
         }
     }
 
-    $out = [ordered]@{ _source = 'tools/launcher.ps1 sobre game/config/fg-launch.json' }
+    # desport: qualidade de imagem. Padrão (desligado) = variável ausente.
+    if ($s.aniso16) { $envVars['KYTY_TEX_ANISO'] = '16' } else { $envVars.Remove('KYTY_TEX_ANISO') }
+    if ([int]$s.mipBias -ge 1) { $envVars['KYTY_LOD_STATS_MIP_BIAS'] = "$([math]::Min([int]$s.mipBias, 2))" } else { $envVars.Remove('KYTY_LOD_STATS_MIP_BIAS') }
+    if ($s.dlssTexBias) { $envVars['KYTY_TEX_DLSS_BIAS'] = 'auto' } else { $envVars.Remove('KYTY_TEX_DLSS_BIAS') }
+    if ($s.dlssAlpha) { $envVars['KYTY_DLSS_ALPHA'] = '1' } else { $envVars.Remove('KYTY_DLSS_ALPHA') }
+    # Variáveis extras: por último, vencem tudo o que está acima.
+    $extra = Read-ExtraEnv ([string]$s.extraEnv)
+    $script:extraNote = $extra.warn
+    foreach ($kv in $extra.pairs) { $envVars[$kv.key] = $kv.value }
+
+    $out = [ordered]@{ _source ='tools/launcher.ps1 sobre game/config/fg-launch.json' }
     foreach ($name in 'kyty_exe', 'work_dir') { if ($base.PSObject.Properties[$name]) { $out[$name] = $base.$name } }
     $out['environment'] = $envVars
     $out['flags'] = @($flags)
@@ -603,6 +641,7 @@ if ($DryRun) {
     Write-Host "# proporção: $((Get-AspectPlan $s).mode)$(if ($script:aspectNote) { ' - ' + $script:aspectNote })"
     Write-Host "# fps: KYTY_FPS_LIMIT=$(if ($script:fpsLimitShown) { $script:fpsLimitShown } else { '(não definida)' })$(if ($script:fpsNote) { ' - ' + $script:fpsNote })"
     Write-Host "# cache de driver: KYTY_DRIVER_CACHE_KEY=$(if ($script:cacheKey) { $script:cacheKey } else { '(não definida; exe não encontrado)' })$(if ($script:cacheNote) { ' - ' + $script:cacheNote })"
+    if ($script:extraNote) { Write-Host "# AVISO: $($script:extraNote)" }
     Write-Host '# JSON de lançamento:'
     Write-Output $json
     if ($script:ultrawidePatch) {
@@ -629,6 +668,7 @@ $script:tmpPatch = $null
 $script:aspectNote = ''
 $script:fpsNote = ''
 $script:cacheNote = ''
+$script:extraNote = ''
 $script:ultrawidePatch = $null
 $script:ui = @{}
 $script:loading = $true
@@ -684,6 +724,11 @@ function Read-Controls {
     $s.fullLog = $u.log.Checked
     $s.ultrawideHud16x9 = $u.hud16.Checked
     $s.disableOverlays = $u.overlays.Checked
+    $s.aniso16 = $u.aniso.Checked
+    $s.mipBias = Get-Pair $u.mip $MipBiasModes
+    $s.dlssTexBias = $u.dlssBias.Checked
+    $s.dlssAlpha = $u.dlssAlpha.Checked
+    $s.extraEnv = $u.extraEnv.Text.Trim()
 }
 
 # Escreve $script:s nos controles.
@@ -708,6 +753,11 @@ function Write-Controls {
     $u.log.Checked = [bool]$s.fullLog
     $u.hud16.Checked = [bool]$s.ultrawideHud16x9
     $u.overlays.Checked = [bool]$s.disableOverlays
+    $u.aniso.Checked = [bool]$s.aniso16
+    Select-Pair $u.mip $MipBiasModes $s.mipBias
+    $u.dlssBias.Checked = [bool]$s.dlssTexBias
+    $u.dlssAlpha.Checked = [bool]$s.dlssAlpha
+    $u.extraEnv.Text = [string]$s.extraEnv
     $script:loading = $false
     Update-GameStatus
     Update-Enabled
@@ -766,7 +816,7 @@ function Update-Enabled {
     $u.precompile.Enabled = ($script:gameOk -and -not $running)
     $u.preset.Enabled = ((Get-Pair $u.dlss $DlssModes) -ne 'off')
     $u.fpsNum.Enabled = (-not $running) -and ((Get-Pair $u.fps $FpsModes) -eq 'custom') -and -not $u.legacy.Checked
-    foreach ($name in 'game', 'browse', 'res', 'full', 'aspect', 'lang', 'fps', 'render', 'dlss', 'fg', 'log', 'hud16', 'overlays', 'legacy', 'reset') { $u[$name].Enabled = -not $running }
+    foreach ($name in 'game', 'browse', 'res', 'full', 'aspect', 'lang', 'fps', 'render', 'dlss', 'fg', 'log', 'hud16', 'overlays', 'legacy', 'reset', 'aniso', 'mip', 'dlssBias', 'dlssAlpha', 'extraEnv') { $u[$name].Enabled = -not $running }
 }
 
 function Set-Status([string]$text, $color = $null) {
@@ -792,8 +842,8 @@ function Start-Game {
         Save-Settings $script:s
         $runArgs = Get-RunArguments $script:tmpLaunch $script:s
         $script:proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $runArgs -WindowStyle Hidden -PassThru
-        $extra = (@($script:aspectNote, $script:fpsNote, $script:cacheNote) | Where-Object { $_ }) -join "`n"
-        Set-Status ('Rodando... (feche o jogo para voltar; as execuções ficam em captures\runs)' + $(if ($extra) { "`n" + $extra } else { '' })) ([System.Drawing.Color]::FromArgb(0, 90, 160))
+        $extra = (@($script:aspectNote, $script:fpsNote, $script:cacheNote, $script:extraNote) | Where-Object { $_ }) -join "`n"
+        Set-Status ('Rodando... (feche o jogo para voltar; as execuções ficam em captures\runs)' + $(if ($extra) { "`n" + $extra } else { '' })) $(if ($script:extraNote) { [System.Drawing.Color]::FromArgb(190, 110, 0) } else { [System.Drawing.Color]::FromArgb(0, 90, 160) })
         $script:ui.timer.Start()
     } catch {
         Set-Status "Erro ao iniciar: $($_.Exception.Message)" ([System.Drawing.Color]::FromArgb(190, 30, 30))
@@ -836,7 +886,7 @@ $form.Text = "Demon's Souls para PC - launcher do desport"
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
-$form.ClientSize = New-Object System.Drawing.Size(600, 798)
+$form.ClientSize = New-Object System.Drawing.Size(600, 968)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $u = $script:ui
 
@@ -896,25 +946,44 @@ $g3.Controls.AddRange(@(
     (New-Label 'Preset do DLSS' 12 82 175), $u.preset,
     (New-Label 'Geração de quadros (DLSS-G)' 12 112 175), $u.fg, $u.log))
 
+# desport: Qualidade de imagem
+$g5 = New-Object System.Windows.Forms.GroupBox
+$g5.Text = 'Qualidade de imagem'; $g5.Location = New-Object System.Drawing.Point(12, 528); $g5.Size = New-Object System.Drawing.Size(576, 164)
+$u.aniso = New-Object System.Windows.Forms.CheckBox
+$u.aniso.Text = 'Filtragem anisotrópica 16x'
+$u.aniso.Location = New-Object System.Drawing.Point(12, 22); $u.aniso.Size = New-Object System.Drawing.Size(552, 24)
+$u.mip = New-Combo 330 50 234 $MipBiasModes
+$u.dlssBias = New-Object System.Windows.Forms.CheckBox
+$u.dlssBias.Text = 'Nitidez extra com DLSS (LOD bias automático; só com DLSS qualidade/equilibrado/desempenho)'
+$u.dlssBias.Location = New-Object System.Drawing.Point(12, 80); $u.dlssBias.Size = New-Object System.Drawing.Size(552, 24)
+$u.dlssAlpha = New-Object System.Windows.Forms.CheckBox
+$u.dlssAlpha.Text = 'Avançado: DLSS: reconstruir alpha'
+$u.dlssAlpha.Location = New-Object System.Drawing.Point(12, 106); $u.dlssAlpha.Size = New-Object System.Drawing.Size(552, 24)
+$u.extraEnv = New-Object System.Windows.Forms.TextBox
+$u.extraEnv.Location = New-Object System.Drawing.Point(330, 132); $u.extraEnv.Size = New-Object System.Drawing.Size(234, 24)
+$g5.Controls.AddRange(@($u.aniso, $u.dlssBias, $u.dlssAlpha, $u.mip, $u.extraEnv,
+    (New-Label 'Texturas mais nítidas (carregar mips mais finos)' 12 50 316),
+    (New-Label 'Variáveis extras (avançado): CHAVE=valor;CHAVE2=valor' 12 132 316)))
+
 # Botões
-$u.play = New-Button 'JOGAR' 12 528 270 44
+$u.play = New-Button 'JOGAR' 12 698 270 44
 $u.play.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
-$u.stop = New-Button 'Parar o jogo' 290 528 120 44
-$u.precompile = New-Button 'Pré-compilar shaders' 12 580 190
-$u.logs = New-Button 'Abrir pasta de logs' 210 580 190
-$u.reset = New-Button 'Restaurar padrões' 408 580 180
-$u.status = New-Label 'Pronto.' 12 622 576
+$u.stop = New-Button 'Parar o jogo' 290 698 120 44
+$u.precompile = New-Button 'Pré-compilar shaders' 12 750 190
+$u.logs = New-Button 'Abrir pasta de logs' 210 750 190
+$u.reset = New-Button 'Restaurar padrões' 408 750 180
+$u.status = New-Label 'Pronto.' 12 792 576
 $u.status.Size = New-Object System.Drawing.Size(576, 48)
 $u.status.TextAlign = 'TopLeft'
 # desport: painel das checagens de abertura
 $g4 = New-Object System.Windows.Forms.GroupBox
-$g4.Text = 'Checagens de abertura'; $g4.Location = New-Object System.Drawing.Point(12, 676); $g4.Size = New-Object System.Drawing.Size(576, 114)
+$g4.Text = 'Checagens de abertura'; $g4.Location = New-Object System.Drawing.Point(12, 846); $g4.Size = New-Object System.Drawing.Size(576, 114)
 $u.checks = New-Object System.Windows.Forms.RichTextBox
 $u.checks.Location = New-Object System.Drawing.Point(8, 20); $u.checks.Size = New-Object System.Drawing.Size(560, 86)
 $u.checks.ReadOnly = $true; $u.checks.BorderStyle = 'None'; $u.checks.BackColor = [System.Drawing.SystemColors]::Control
 $u.checks.Font = New-Object System.Drawing.Font('Segoe UI', 8.25); $u.checks.ScrollBars = 'Vertical'; $u.checks.TabStop = $false
 $g4.Controls.Add($u.checks)
-$form.Controls.AddRange(@($g1, $g2, $g3, $u.play, $u.stop, $u.precompile, $u.logs, $u.reset, $u.status, $g4))
+$form.Controls.AddRange(@($g1, $g2, $g3, $u.play, $u.stop, $u.precompile, $u.logs, $u.reset, $u.status, $g4, $g5))
 
 # Dicas
 $tip = New-Object System.Windows.Forms.ToolTip
@@ -924,9 +993,15 @@ $tip.SetToolTip($u.legacy, 'Modo antigo: --vblank-frequency 120 sem limite de fp
 $tip.SetToolTip($u.dlss, 'Super-resolução da NVIDIA no lugar do TAA do jogo (RTX 20 ou mais nova).')
 $tip.SetToolTip($u.preset, 'Padrão deixa o engine escolher (DLSS 4.5). J e K são os modelos antigos; L e M, os do DLSS 4.5.')
 $tip.SetToolTip($u.fg, 'Geração de quadros da NVIDIA (DLSS-G): RTX 40 ou mais nova para 2x; 3x e 4x pedem RTX 50.')
-$tip.SetToolTip($u.hud16, 'Só no ultrawide nativo: o HUD e os menus ficam em 16:9 no centro da tela (KYTY_ULTRAWIDE_HUD=16x9). Sem isto o HUD fica ancorado nas bordas da tela larga.')
+$tip.SetToolTip($u.hud16, 'Só no ultrawide nativo: o HUD e os menus ficam em 16:9 no centro da tela (KYTY_ULTRAWIDE_HUD_LAYOUT=16x9, com KYTY_ULTRAWIDE_HUD=native). Sem isto o HUD fica ancorado nas bordas da tela larga.')
 $tip.SetToolTip($u.overlays, 'Define, só para o processo do jogo, as chaves que desligam as camadas Vulkan do RivaTuner/Afterburner, do OBS, da Steam e da Epic: elas quebram junto com o Streamline (crash dentro do vulkan-1.dll ao criar o device). Consequência: o overlay de fps do Afterburner/OBS não aparece no jogo.')
 $tip.SetToolTip($u.aspect, 'Ultrawide nativo: renderiza na proporção da resolução, com campo de visão mais largo e HUD ancorado nas bordas (só versão 01.007.000); vídeos ficam esticados na horizontal. 16:9 com barras: sem distorção. Automática: ultrawide quando a resolução é mais larga que 16:9.')
+
+$tip.SetToolTip($u.aniso, 'Filtragem anisotrópica 16x nas texturas (KYTY_TEX_ANISO=16).')
+$tip.SetToolTip($u.mip, 'Carrega mips mais finos nas texturas (KYTY_LOD_STATS_MIP_BIAS=1 ou 2). Padrão: variável ausente.')
+$tip.SetToolTip($u.dlssBias, 'LOD bias automático das texturas para o DLSS (KYTY_TEX_DLSS_BIAS=auto). Só tem efeito com DLSS qualidade, equilibrado ou desempenho.')
+$tip.SetToolTip($u.dlssAlpha, 'Pede ao DLSS que reconstrua o canal alfa (KYTY_DLSS_ALPHA=1).')
+$tip.SetToolTip($u.extraEnv, 'Variáveis de ambiente extras no formato CHAVE=valor;CHAVE2=valor. A chave só pode ter A-Z, 0-9 e _; itens inválidos são ignorados. São aplicadas por último e vencem as outras opções.')
 
 # Eventos
 $u.browse.Add_Click({
