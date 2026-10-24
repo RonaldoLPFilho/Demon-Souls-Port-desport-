@@ -34,6 +34,9 @@ TOP = 10
 MILESTONE_RE = re.compile(r'^DES_MILESTONE (\S+) t=(\d+)(?: (.*))?$')
 FPS_RE = re.compile(r'^DES_FPS t=(\d+) fps=([\d.]+)$')
 FRAME_RE = re.compile(r'^DES_FRAME (.*)$')  # desport: DES_FRAME (histograma de vblanks, percentis, esperas, contadores)
+READBACK_RE = re.compile(r'^DES_READBACK (.*)$')  # desport: KYTY_READBACK_PREFETCH (boot e janelas de 5 s)
+FPS_LIMIT_RE = re.compile(r'^DES_FPS_LIMIT (.*)$')  # desport: KYTY_FPS_LIMIT (boot, display, movie_hold, stats a cada 30 s)
+ULTRAWIDE_RE = re.compile(r'^DES_ULTRAWIDE (.*)$')  # desport: ultrawide (render, hud, hud_layout, movie_pillarbox)
 SLOW_CALL_RE = re.compile(r'^DES_SLOW (.*)$')
 MEM_RE = re.compile(r'^DES_MEM t=(\d+) name=(\S+) bytes=(\d+) count=(\d+)$')
 FAULTS_RE = re.compile(r'^DES_FAULTS (.*)$')
@@ -84,10 +87,43 @@ def faults_summary(windows):
                 windows=len(windows))
 
 
+def parse_fields(text):
+    """Pares chave=valor separados por espaço (valores numéricos viram float, o resto fica texto)."""
+    out = {}
+    for kv in text.split():
+        if '=' not in kv:
+            continue
+        k, v = kv.split('=', 1)
+        try:
+            out[k] = float(v)
+        except ValueError:
+            out[k] = v
+    return out
+
+
+def parse_fps_limit(text):
+    """DES_FPS_LIMIT: movie_hold on|off, stats, display (com t=) ou o boot (mode=...; game_convars entre aspas)."""
+    text = text.strip()
+    if text.startswith('movie_hold '):
+        state = text[len('movie_hold '):].split(' ', 1)[0]
+        head, _, file = text.partition(' file=')
+        return dict(kind='movie_hold', state=state, t=parse_fields(head).get('t'), file=file)
+    if text.startswith('stats '):
+        return dict(parse_fields(text[len('stats '):]), kind='stats')
+    if text.startswith('display '):
+        fields = {k: str(v) for k, v in parse_fields(text[len('display '):]).items()}
+        return dict(kind='display', t=float(fields.get('t', 0)), display=fields.get('display', ''), limit=fields.get('limit', ''))
+    head, _, convars = text.partition(' game_convars=')
+    note = head.split(' (', 1)[1].rstrip(')') if ' (' in head else ''
+    fields = {k: str(v) for k, v in parse_fields(head.split(' (')[0]).items()}
+    return dict(kind='boot', mode=fields.get('mode', ''), limit=fields.get('limit', ''), vblank=fields.get('vblank', ''),
+                convars=convars.strip().strip('"'), note=note)
+
+
 def parse_log(path):
     text = path.read_text(encoding='utf-8', errors='replace')
     lines = text.splitlines()
-    report = dict(lines=len(lines), milestones=[], fps=[], frames=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], crashes=[], fault_windows=[], modules=[], error=None, host_exception=None,
+    report = dict(lines=len(lines), milestones=[], fps=[], frames=[], slow_calls=[], readback=[], fps_limit=[], ultrawide=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], crashes=[], fault_windows=[], modules=[], error=None, host_exception=None,
                   stub_calls={}, stubbed_at_link=0, vulkan={}, warnings={})
     pending_module = None
     for i, line in enumerate(lines):
@@ -97,6 +133,12 @@ def parse_log(path):
             report['fps'].append((int(m.group(1)), float(m.group(2))))
         elif m := FRAME_RE.match(line):
             report['frames'].append({k: float(v) for k, v in (kv.split('=', 1) for kv in m.group(1).split() if '=' in kv)})
+        elif m := READBACK_RE.match(line):
+            report['readback'].append(parse_fields(m.group(1)))
+        elif m := FPS_LIMIT_RE.match(line):
+            report['fps_limit'].append(parse_fps_limit(m.group(1)))
+        elif m := ULTRAWIDE_RE.match(line):
+            report['ultrawide'].append(m.group(1).strip())
         elif m := SLOW_CALL_RE.match(line):
             report['slow_calls'].append(dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv))
         elif m := FAULTS_RE.match(line):
@@ -285,7 +327,7 @@ def triage(target):
         seen = {m['name'] for m in report['milestones']}
         report['milestones'] += [m for m in extra['milestones'] if m['name'] not in seen]
         report['milestones'].sort(key=lambda m: m['t_ms'])
-        for key in ('fps', 'frames', 'slow_calls', 'counters', 'stats', 'stat_addrs', 'mem_samples', 'crashes', 'fault_windows'):
+        for key in ('fps', 'frames', 'slow_calls', 'readback', 'fps_limit', 'ultrawide', 'counters', 'stats', 'stat_addrs', 'mem_samples', 'crashes', 'fault_windows'):
             if not report[key]:
                 report[key] = extra[key]
     report['run'] = run
@@ -402,7 +444,8 @@ def _by_minute(fps):
 FRAME_WAITS = ('gpu_wait', 'readback_wait', 'download_wait', 'compile', 'record_wait', 'upload_wait', 'idle', 'cpu')
 FRAME_COUNTS = ('sync_reads_guest', 'sync_reads_render', 'rb_reject_size', 'rb_reject_backing', 'rb_reject_image',
                 'rb_reject_capacity', 'sync_downloads', 'async_readbacks', 'pipeline_static_hits',
-                'pipeline_static_misses', 'pipeline_driver_hits')
+                'pipeline_static_misses', 'pipeline_driver_hits',
+                'prefetch_hits', 'prefetch_neighbors', 'prefetch_stale', 'prefetch_lost')
 
 
 def frame_summary(windows):
@@ -456,6 +499,100 @@ def render_frames(summary):
     rate = f" ({100 * hits / (hits + misses):.1f}% de acerto)" if hits + misses else ''
     L.append(f"- Cache estático de pipelines: {hits:.0f} acertos, {misses:.0f} erros{rate}; "
              f"cache de driver: {c['pipeline_driver_hits']:.0f} acertos (só visíveis nos builds Fast)")
+    L.append(f"- Prefetch de readback (DES_FRAME): acertos {c['prefetch_hits']:.0f}, vizinhos {c['prefetch_neighbors']:.0f}, "
+             f"obsoletos {c['prefetch_stale']:.0f}, perdidos {c['prefetch_lost']:.0f}")
+    L.append('')
+    return L
+
+
+READBACK_SUM = ('prefetch_snapshots', 'prefetch_bytes', 'prefetch_hits', 'prefetch_neighbors', 'prefetch_waits',
+                'prefetch_lost', 'prefetch_stale', 'prefetch_misses', 'prefetch_skips', 'guest_reads', 'guest_read_ms',
+                'sync_reads_guest', 'async_readbacks', 'sync_downloads')
+
+
+def readback_summary(rows):
+    """DES_READBACK: a linha de boot (prefetch=..) e as janelas de 5 s (t=..) somadas; None sem nenhuma."""
+    boot = next((r for r in rows if 'prefetch' in r and 't' not in r), None)
+    windows = [r for r in rows if 't' in r]
+    if boot is None and not windows:
+        return None
+    totals = {k: sum(float(w.get(k, 0)) for w in windows) for k in READBACK_SUM}
+    reads = totals['guest_reads']
+    totals['guest_read_us'] = totals['guest_read_ms'] * 1000.0 / reads if reads else 0.0
+    served = totals['prefetch_hits'] + totals['prefetch_misses']
+    totals['hit_rate'] = totals['prefetch_hits'] / served if served else None
+    return dict(boot=boot, windows=len(windows), seconds=sum(float(w.get('window_ms', 0)) for w in windows) / 1000.0,
+                totals=totals)
+
+
+def render_readback(summary):
+    L = ['## Readback (DES_READBACK)\n']
+    b = summary['boot']
+    if b:
+        L.append(f"- Boot: prefetch={b.get('prefetch'):g} ativo={b.get('active', 0):g} frame_pipeline={b.get('frame_pipeline', 0):g}"
+                 + (f" copy_feedback={b['copy_feedback']:g}" if 'copy_feedback' in b else '')
+                 + (f" readback_queue={b['readback_queue']:g}" if 'readback_queue' in b else ''))
+    else:
+        L.append('- Linha de boot ausente.')
+    t = summary['totals']
+    if summary['windows']:
+        rate = f" ({100 * t['hit_rate']:.1f}% de acerto)" if t['hit_rate'] is not None else ''
+        L.append(f"- {summary['windows']} janelas ({summary['seconds']:.0f} s): snapshots {t['prefetch_snapshots']:.0f} "
+                 f"({t['prefetch_bytes'] / 1048576:.1f} MiB), acertos {t['prefetch_hits']:.0f}{rate}, "
+                 f"vizinhos {t['prefetch_neighbors']:.0f}, esperas {t['prefetch_waits']:.0f}, perdidos {t['prefetch_lost']:.0f}, "
+                 f"obsoletos {t['prefetch_stale']:.0f}, erros {t['prefetch_misses']:.0f}, pulados {t['prefetch_skips']:.0f}")
+        L.append(f"- Leituras do guest: {t['guest_reads']:.0f} ({t['guest_read_ms']:.1f} ms no total, "
+                 f"{t['guest_read_us']:.1f} us em média); leituras síncronas guest {t['sync_reads_guest']:.0f}, "
+                 f"readbacks assíncronos {t['async_readbacks']:.0f}, downloads síncronos {t['sync_downloads']:.0f}")
+    else:
+        L.append('- Nenhuma janela periódica (só o boot).')
+    L.append('')
+    return L
+
+
+def fps_limit_summary(rows):
+    """DES_FPS_LIMIT: boot, taxa do display, segurar durante vídeos e estatísticas de 30 s; None sem linhas."""
+    if not rows:
+        return None
+    stats = [r for r in rows if r.get('kind') == 'stats']
+    holds = [r for r in rows if r.get('kind') == 'movie_hold']
+    return dict(boot=[r for r in rows if r.get('kind') == 'boot'], display=[r for r in rows if r.get('kind') == 'display'],
+                holds_on=sum(1 for r in holds if r['state'] == 'on'), holds_off=sum(1 for r in holds if r['state'] == 'off'),
+                holds=holds, stats=len(stats),
+                between=sum(float(r.get('between_vblanks', 0)) for r in stats),
+                on_vblank=sum(float(r.get('on_vblank', 0)) for r in stats),
+                stats_movie_hold=sum(1 for r in stats if r.get('movie_hold') == 1))
+
+
+def render_fps_limit(summary):
+    L = ['## Limite de fps (DES_FPS_LIMIT)\n']
+    for b in summary['boot']:
+        L.append(f"- Boot: mode={b['mode']}" + (f" limit={b['limit']}" if b['limit'] else '') +
+                 f" vblank={b['vblank']}" + (f" ({b['note']})" if b['note'] else '') +
+                 (f", game_convars `{b['convars']}`" if b['convars'] else ''))
+    for d in summary['display']:
+        L.append(f"- Display: {d['display']} -> limite {d['limit']} (t={d['t']:.0f} ms)")
+    L.append(f"- Vídeos (movie_hold): {summary['holds_on']} on, {summary['holds_off']} off"
+             + ('; ' + ', '.join(f"{h['state']}@{(h['t'] or 0):.0f} ms `{Path(h['file']).name}`" for h in summary['holds'][:6])
+                if summary['holds'] else ''))
+    if summary['stats']:
+        total = summary['between'] + summary['on_vblank']
+        share = f" ({100 * summary['between'] / total:.1f}% entre vblanks)" if total else ''
+        L.append(f"- Estatísticas ({summary['stats']} janelas de 30 s): flips entre vblanks {summary['between']:.0f}, "
+                 f"no vblank {summary['on_vblank']:.0f}{share}; janelas com movie_hold: {summary['stats_movie_hold']}")
+    L.append('')
+    return L
+
+
+def render_ultrawide(lines):
+    L = ['## Ultrawide (DES_ULTRAWIDE)\n']
+    shown = list(dict.fromkeys(lines))
+    L.extend(f'- `{l[:200]}`' for l in shown[:12])
+    if len(shown) > 12:
+        L.append(f'- ... mais {len(shown) - 12} linhas distintas')
+    pillar = sum(1 for l in lines if l.startswith('movie_pillarbox'))
+    hud = sum(1 for l in lines if l.startswith('hud_layout'))
+    L.append(f'- Linhas: movie_pillarbox {pillar}, hud_layout {hud}')
     L.append('')
     return L
 
@@ -500,6 +637,14 @@ def render(report):
     frame_sum = frame_summary(report.get('frames') or [])
     if frame_sum:
         L.extend(render_frames(frame_sum))
+    rb_sum = readback_summary(report.get('readback') or [])
+    if rb_sum:
+        L.extend(render_readback(rb_sum))
+    fl_sum = fps_limit_summary(report.get('fps_limit') or [])
+    if fl_sum:
+        L.extend(render_fps_limit(fl_sum))
+    if report.get('ultrawide'):
+        L.extend(render_ultrawide(report['ultrawide']))
     if report.get('slow_calls'):
         L.append('## Chamadas acima de 1 s (DES_SLOW)\n')
         L.append('| t (ms) | Escopo | ms | Endereço |')

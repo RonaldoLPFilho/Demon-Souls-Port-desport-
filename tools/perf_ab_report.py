@@ -22,6 +22,9 @@ import log_triage  # noqa: E402
 CACHE_RE = re.compile(r'^((?:Vulkan|Static) pipeline cache: .*)$', re.M)
 WAVE64_RE = re.compile(r'^(Vulkan compute wave64: .*)$', re.M)
 PIPEKEY_RE = re.compile(r'^PIPEKEY (\S+) key=([0-9a-f]+)', re.M)
+SPEEDPROBE_RE = re.compile(r'SPEEDPROBE hold_ms=(\d+) wall_s=([\d.,]+) diff=([\d.,]+)')
+SPEEDPROBE_FAIL_RE = re.compile(r'(SPEEDPROBE sem captura.*)$', re.M)
+MISMATCH_RE = re.compile(r'^READBACK_QUEUE_MISMATCH .*$', re.M)
 HITCH_COMPARE_MS = 100.0  # as rodadas têm limiares KYTY_HITCH_LOG_MS diferentes; esta contagem é comparável
 
 
@@ -68,6 +71,25 @@ def run_metrics(run_dir, warmup_sec):
         p = run_dir / name
         if p.exists():
             text += p.read_text(encoding='utf-8', errors='replace') + '\n'
+    # SPEEDPROBE (autopilot.txt, com soak.ps1 -SpeedProbe): o jogo andou quanto em 4 s de relógio (diff entre as imagens).
+    probe_path = run_dir / 'autopilot.txt'
+    probe_text = probe_path.read_text(encoding='utf-8', errors='replace') if probe_path.exists() else ''
+    out['speedprobe'] = [dict(hold_ms=int(h), wall_s=float(w.replace(',', '.')), diff=float(d.replace(',', '.')))
+                         for h, w, d in SPEEDPROBE_RE.findall(probe_text)]
+    out['speedprobe_failed'] = SPEEDPROBE_FAIL_RE.findall(probe_text)
+    # READBACK_QUEUE_MISMATCH: o engine imprime no stdout (que o log.txt pode repetir): conta uma fonte so.
+    mismatch_text = ''
+    for name in ('stdout.txt', 'log.txt'):
+        p = run_dir / name
+        if p.exists():
+            mismatch_text = p.read_text(encoding='utf-8', errors='replace')
+            if 'READBACK_QUEUE_MISMATCH' in mismatch_text or name == 'stdout.txt':
+                break
+    mismatches = MISMATCH_RE.findall(mismatch_text)
+    out['mismatch_count'] = len(mismatches)
+    out['mismatch_top'] = mismatches[:3]
+    rb_rows = [r for r in report['readback'] if 't' not in r or r['t'] >= warmup_sec * 1000]
+    out['readback_lines'] = log_triage.readback_summary(rb_rows)
     out['cache_lines'] = list(dict.fromkeys(CACHE_RE.findall(text)))[:6]
     out['wave64'] = (WAVE64_RE.findall(text) or [None])[0]
     keys = PIPEKEY_RE.findall(text)
@@ -105,6 +127,9 @@ def render(manifest, warmup_sec):
     L = [f"# Bateria A/B de desempenho {manifest.get('date', '')}\n",
          f"- {len(runs)} execuções de {manifest.get('minutes', '?')} min; estatísticas de fps/DES_FRAME só depois de "
          f"{warmup_sec:.0f} s de log (aquecimento). Save de referência e autopilot em todas.",
+         '- Cache do driver: o run.ps1 define KYTY_DRIVER_CACHE_KEY sozinho (sha256 do exe), então todas as rodadas usam o '
+         'cache de driver (quente a partir da 2ª com o mesmo exe). C1 = cache FRIO (chave nova aleatória de 64 hex); '
+         'C2 = a mesma chave, QUENTE. As outras rodadas não são frias.',
          '- Travadas: `todas` usa o limiar KYTY_HITCH_LOG_MS da própria rodada (A usa 20 ms, as outras 100 ms: '
          'não comparar); `>=100 ms` é comparável entre rodadas. Contagens incluem o carregamento inicial.',
          '']
@@ -138,6 +163,44 @@ def render(manifest, warmup_sec):
                      f"{fr['counts']['sync_reads_guest'] / (fr['frames'] or 1):.1f} | "
                      f"{fr['counts']['pipeline_static_misses']:.0f} |")
         L.append('')
+    L += ['## Readback (DES_READBACK, janelas depois do aquecimento)\n']
+    if not any(m and (m.get('readback_lines') or m.get('mismatch_count')) for _, m in rows):
+        L += ['Nenhuma linha DES_READBACK nas execuções (engine sem a instrumentação, ou nenhuma rodada a usou).', '']
+    else:
+        L += ['| Execução | prefetch / ativo / queue | acertos (%) | vizinhos | esperas | perdidos | obsoletos | erros | pulados | '
+              'leituras guest | guest_read us | sync_reads_guest | async | downloads sínc. | READBACK_QUEUE_MISMATCH |',
+              '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+        for r, m in rows:
+            rb = m.get('readback_lines') if m else None
+            mism = m.get('mismatch_count') if m else None
+            if not rb:
+                L.append(f"| {r['id']} | — | — | — | — | — | — | — | — | — | — | — | — | — | {'—' if mism is None else mism} |")
+                continue
+            b, t = rb['boot'] or {}, rb['totals']
+            flags = (f"{b.get('prefetch', 0):g} / {b.get('active', 0):g} / {b.get('readback_queue', 0):g}" if b else '—')
+            rate = '—' if t['hit_rate'] is None else f"{100 * t['hit_rate']:.1f}%"
+            L.append(f"| {r['id']} | {flags} | {t['prefetch_hits']:.0f} ({rate}) | {t['prefetch_neighbors']:.0f} | "
+                     f"{t['prefetch_waits']:.0f} | {t['prefetch_lost']:.0f} | {t['prefetch_stale']:.0f} | "
+                     f"{t['prefetch_misses']:.0f} | {t['prefetch_skips']:.0f} | {t['guest_reads']:.0f} | "
+                     f"{t['guest_read_us']:.1f} | {t['sync_reads_guest']:.0f} | {t['async_readbacks']:.0f} | "
+                     f"{t['sync_downloads']:.0f} | {mism} |")
+        L.append('')
+    L += ['## SpeedProbe (autopilot -SpeedProbe)\n']
+    if not any(m and (m.get('speedprobe') or m.get('speedprobe_failed')) for _, m in rows):
+        L += ['Nenhuma linha SPEEDPROBE nas execuções.', '']
+    else:
+        L += ['Segura W por 4 s de relógio; `diff` = média |A-B| por canal (0-255) entre a imagem antes e depois. A mesma '
+              'trajetória andando em tempo real dá diffs parecidos; diff bem maior com mais fps = jogo acelerado.', '',
+              '| Execução | vblank (flag) | wall_s | diff |', '|---|---|---:|---:|']
+        for r, m in rows:
+            if not m or 'error' in m:
+                continue
+            vb = r['flags'][-1] if r.get('flags') else '—'
+            for sp in m.get('speedprobe') or []:
+                L.append(f"| {r['id']} | {vb} | {sp['wall_s']:.2f} | {sp['diff']:.2f} |")
+            for fail in m.get('speedprobe_failed') or []:
+                L.append(f"| {r['id']} | {vb} | — | {fail} |")
+        L.append('')
     L += ['## Detalhes por execução\n']
     for r, m in rows:
         L.append(f"### {r['id']} — {r.get('desc', '')}")
@@ -163,6 +226,12 @@ def render(manifest, warmup_sec):
             rb = m['readback']
             L.append(f"- readback (DES_STAT): {rb['calls_per_frame']:.1f} chamadas/quadro, {rb['ms_per_frame']:.2f} ms/quadro, "
                      f"{rb['ms_per_call']:.3f} ms/chamada")
+        for sp in m['speedprobe']:
+            L.append(f"- SPEEDPROBE: wall_s={sp['wall_s']:.2f} diff={sp['diff']:.2f}")
+        if m['mismatch_count']:
+            L.append(f"- **READBACK_QUEUE_MISMATCH: {m['mismatch_count']} ocorrências** (primeiras abaixo)")
+            for line in m['mismatch_top']:
+                L.append(f"  - `{line[:300]}`")
         if m['write_watch_lines'] or m['sync_stack_lines']:
             L.append(f"- WRITE-WATCH {m['write_watch_lines']} linhas, SYNC-STACK {m['sync_stack_lines']} linhas (primeiras abaixo)")
             for line in m['write_watch_top'] + m['sync_stack_top']:

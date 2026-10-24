@@ -26,7 +26,9 @@ param(
     [string]$Save = 'user/saves-backup/kyty-fg-20261023-2050',
     [int]$StartupSeconds = 300,
     # Variáveis de ambiente para o run.ps1 (aplicadas aqui antes do Start-Job: o job herda o ambiente do pai).
-    [hashtable]$Env = @{}
+    [hashtable]$Env = @{},
+    # Repassa -SpeedProbe ao autopilot (segura W por 4 s de relógio e registra SPEEDPROBE ... diff= em autopilot.txt).
+    [switch]$SpeedProbe
 )
 
 Set-StrictMode -Version 2.0
@@ -94,9 +96,10 @@ if (Test-Path -LiteralPath $sampler) {
 
 # 3. Piloto automático.
 $pilotLog = Join-Path $runDir.FullName 'autopilot.txt'
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'autopilot.ps1') `
-    -StartupSeconds $StartupSeconds -PlaySeconds ($Minutes * 60) -ShotDir (Join-Path $runDir.FullName 'shots') |
-    Tee-Object -FilePath $pilotLog
+$pilotArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'autopilot.ps1'),
+    '-StartupSeconds', $StartupSeconds, '-PlaySeconds', ($Minutes * 60), '-ShotDir', (Join-Path $runDir.FullName 'shots'))
+if ($SpeedProbe) { $pilotArgs += '-SpeedProbe' }
+& powershell @pilotArgs | Tee-Object -FilePath $pilotLog
 $pilotCode = $LASTEXITCODE
 
 # 4. Fim: encerra o emulador se ainda estiver aberto e espera a triagem do run.ps1.

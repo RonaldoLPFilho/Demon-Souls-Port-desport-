@@ -31,3 +31,4 @@
 - Ferramentas PowerShell: validar com `[System.Management.Automation.Language.Parser]::ParseFile`.
   Python: `python -I`; testes com `python -I -m unittest discover -s tests/tools` (não há pytest).
 - Relatório final curto: o que mudou (hash/arquivos), como testar, riscos, pendências e "Para a memória".
+- Bash dos agentes estraga `\n` e `\d` em heredoc: para patches com barra invertida, escreva o script com Write e rode com `python -I`. Arquivos do engine e vários de `tools/` são CRLF.

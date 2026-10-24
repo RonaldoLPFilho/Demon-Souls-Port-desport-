@@ -59,6 +59,34 @@ class PerfAbTests(unittest.TestCase):
             self.assertIn('| C1 | error |', text)
             self.assertIn('`--vblank-frequency 240`', text)
 
+    def test_readback_speedprobe_mismatch(self):
+        with tempfile.TemporaryDirectory() as root:
+            a = make_run(root, 'a', [(200000, 60.0)])
+            b = make_run(root, 'b', [(200000, 90.0)])
+            with (a / 'stdout.txt').open('a', encoding='utf-8') as f:
+                f.write('DES_READBACK prefetch=1 active=1 frame_pipeline=1 copy_feedback=0 readback_queue=3 chunk=65536\n')
+                f.write('DES_READBACK t=1000 window_ms=5000 prefetch_snapshots=99 prefetch_hits=99 prefetch_misses=0 '
+                        'guest_reads=99 guest_read_ms=99.0 guest_read_us=1000.0\n')  # dentro do aquecimento: fica fora
+                f.write('DES_READBACK t=200000 window_ms=5000 prefetch_snapshots=10 prefetch_bytes=1048576 prefetch_hits=30 '
+                        'prefetch_neighbors=2 prefetch_waits=1 prefetch_lost=0 prefetch_stale=4 prefetch_misses=10 '
+                        'prefetch_skips=0 guest_reads=40 guest_read_ms=20.0 guest_read_us=500.0 sync_reads_guest=10 '
+                        'async_readbacks=5 sync_downloads=0\n')
+                f.write('READBACK_QUEUE_MISMATCH graphics address=0x1 size=0x2 first=0x0 differing=1 waited=0\n')
+                f.write('READBACK_QUEUE_MISMATCH guest address=0x3 size=0x2 first=0x0 differing=1 waited=0\n')
+            (a / 'autopilot.txt').write_text('   12.3 s HUD: no jogo\n   20.0 s SPEEDPROBE hold_ms=4000 wall_s=4,05 diff=12,50\n',
+                                             encoding='utf-8')
+            (b / 'autopilot.txt').write_text('   20.0 s SPEEDPROBE sem captura (janela fora de foco)\n', encoding='utf-8')
+            manifest = dict(date='x', minutes=6, runs=[
+                dict(id='RBQ', desc='d', run_dir=str(a), outcome='completed', flags=['--vblank-frequency', '120']),
+                dict(id='FPS', desc='e', run_dir=str(b), outcome='completed', flags=['--vblank-frequency', '60'])])
+            text = perf_ab_report.render(manifest, 180)
+            self.assertIn('| RBQ | 1 / 1 / 3 | 30 (75.0%) | 2 | 1 | 0 | 4 | 10 | 0 | 40 | 500.0 | 10 | 5 | 0 | 2 |', text)
+            self.assertIn('| FPS | — |', text)
+            self.assertIn('| RBQ | 120 | 4.05 | 12.50 |', text)
+            self.assertIn('SPEEDPROBE sem captura', text)
+            self.assertIn('READBACK_QUEUE_MISMATCH: 2 ocorrências', text)
+            self.assertIn('C1 = cache FRIO', text)
+
     def test_main(self):
         with tempfile.TemporaryDirectory() as root:
             a = make_run(root, 'a', [(200000, 60.0)])

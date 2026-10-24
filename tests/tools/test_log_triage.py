@@ -142,6 +142,83 @@ class TriageTests(unittest.TestCase):
             report, _ = log_triage.triage(run)
             self.assertEqual(len(report['frames']), 3)
 
+    READBACK_LINES = (
+        'DES_READBACK prefetch=1 active=1 frame_pipeline=1 copy_feedback=0 readback_queue=3 chunk=65536 hot_chunks=32 hot_ticks=4096\n'
+        'DES_READBACK t=5000 window_ms=5000 prefetch_snapshots=10 prefetch_bytes=2097152 prefetch_hits=80 prefetch_neighbors=5 '
+        'prefetch_waits=2 prefetch_lost=1 prefetch_stale=3 prefetch_misses=20 prefetch_skips=4 guest_reads=100 guest_read_ms=50.0 '
+        'guest_read_us=500.0 sync_reads_guest=20 async_readbacks=7 sync_downloads=1\n'
+        'DES_READBACK t=10000 window_ms=5000 prefetch_snapshots=10 prefetch_bytes=2097152 prefetch_hits=20 prefetch_neighbors=0 '
+        'prefetch_waits=0 prefetch_lost=0 prefetch_stale=0 prefetch_misses=80 prefetch_skips=0 guest_reads=100 guest_read_ms=150.0 '
+        'guest_read_us=1500.0 sync_reads_guest=80 async_readbacks=3 sync_downloads=0\n')
+
+    def test_frame_prefetch_columns(self):
+        line = ('DES_FRAME t=5000 frames=100 vblank=60 v1=100 v2=0 v3=0 v4p=0 p50=16.60 p95=16.70 p99=16.80 max=17.00 '
+                'sync_reads_guest=10 pipeline_static_hits=1 pipeline_static_misses=0 pipeline_driver_hits=0 '
+                'prefetch_hits=40 prefetch_neighbors=6 prefetch_stale=2 prefetch_lost=1\n')
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'log.txt').write_text(line, encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            counts = log_triage.frame_summary(report['frames'])['counts']
+            self.assertEqual((counts['prefetch_hits'], counts['prefetch_neighbors'], counts['prefetch_stale'],
+                              counts['prefetch_lost']), (40, 6, 2, 1))
+            self.assertIn('acertos 40, vizinhos 6, obsoletos 2, perdidos 1', log_triage.render(report))
+
+    def test_readback_section(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'stdout.txt').write_text(self.READBACK_LINES, encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            summary = log_triage.readback_summary(report['readback'])
+            self.assertEqual(summary['windows'], 2)
+            self.assertEqual(summary['boot']['readback_queue'], 3)
+            self.assertEqual(summary['totals']['prefetch_hits'], 100)
+            self.assertEqual(summary['totals']['guest_reads'], 200)
+            self.assertAlmostEqual(summary['totals']['guest_read_us'], 1000.0)
+            self.assertAlmostEqual(summary['totals']['hit_rate'], 0.5)
+            text = log_triage.render(report)
+            self.assertIn('## Readback (DES_READBACK)', text)
+            self.assertIn('Boot: prefetch=1 ativo=1 frame_pipeline=1', text)
+            self.assertIn('acertos 100 (50.0% de acerto)', text)
+            self.assertIn('1000.0 us em média', text)
+
+    def test_readback_boot_only_and_absent(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            self.assertNotIn('DES_READBACK', log_triage.render(log_triage.triage(run)[0]))
+            (run / 'log.txt').write_text(self.READBACK_LINES.splitlines()[0] + '\n', encoding='utf-8')
+            text = log_triage.render(log_triage.triage(run)[0])
+            self.assertIn('Nenhuma janela periódica', text)
+
+    def test_fps_limit_and_ultrawide(self):
+        lines = (
+            'DES_FPS_LIMIT mode=fixed limit=60fps vblank=120Hz movies=vblank game_convars="a=1 b=2"\n'
+            'DES_FPS_LIMIT mode=off vblank=60Hz (KYTY_FPS_LIMIT unset: one flip per vblank tick)\n'
+            'DES_FPS_LIMIT display t=900 display=144Hz limit=144fps\n'
+            'DES_FPS_LIMIT movie_hold on t=1000 file=/app0/movie/intro.mp4\n'
+            'DES_FPS_LIMIT movie_hold off t=9000 file=/app0/movie/intro.mp4\n'
+            'DES_FPS_LIMIT stats t=30000 between_vblanks=900 on_vblank=100 movie_hold=0\n'
+            'DES_FPS_LIMIT stats t=60000 between_vblanks=100 on_vblank=900 movie_hold=1\n'
+            'DES_ULTRAWIDE movie_pillarbox draw ps=0x1 texture=1920x1080 slot=0 target=3440x1440 viewport_width=2->3\n'
+            'DES_ULTRAWIDE hud_layout applied: x\n')
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'stdout.txt').write_text(lines, encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            fl = log_triage.fps_limit_summary(report['fps_limit'])
+            self.assertEqual((fl['holds_on'], fl['holds_off'], fl['stats']), (1, 1, 2))
+            self.assertEqual(fl['boot'][0]['mode'], 'fixed')
+            self.assertEqual(fl['boot'][0]['convars'], 'a=1 b=2')
+            self.assertEqual(fl['boot'][1]['mode'], 'off')
+            self.assertEqual(fl['display'][0]['display'], '144Hz')
+            self.assertEqual(fl['between'], 1000)
+            text = log_triage.render(report)
+            self.assertIn('## Limite de fps (DES_FPS_LIMIT)', text)
+            self.assertIn('1 on, 1 off', text)
+            self.assertIn('50.0% entre vblanks', text)
+            self.assertIn('## Ultrawide (DES_ULTRAWIDE)', text)
+            self.assertIn('movie_pillarbox 1, hud_layout 1', text)
+
     def test_slow_calls(self):
         with tempfile.TemporaryDirectory() as root:
             run = make_run(root)
