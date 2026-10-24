@@ -67,3 +67,9 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
 - `log_triage.py`: gera `triage.md` por execução; é a biblioteca de leitura das linhas DES_*.
   Não duplicar o parser.
 - Saídas derivadas do jogo ficam em `captures/`, `user/` e `out/`, todas fora do git.
+
+## Upstream (cherry-pick para o FrameGen)
+- Os testes de `tests/` do upstream não casam com a base do FrameGen (SDL2, sem ZArchive). Em conflito, use `git checkout --ours` nos `tests/`.
+- O FrameGen reimplementou capacidade de SaveData, `ClampRangeSize` em `FindBuffers`, `VirtualRanges` em árvore e fibras por thread. Commits do upstream nesses pontos tendem a conflitar.
+- AMPR: a reescrita em threads (`5bf9218b`, `c045f089` e seguintes) é tudo ou nada. Ela conflita com o `SlowLog` e com o porte do `41beda43` em `libAmpr.cpp`.
+- Lote B em `desport-up4` (6 commits; JpegDec/JpegEnc com `stb_image_write.h`; mutex FIFO `f5ec99fd`: se houver deadlock ou queda de fps, reverter esse primeiro).
