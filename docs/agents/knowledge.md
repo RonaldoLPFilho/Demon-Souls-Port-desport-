@@ -79,3 +79,6 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
 - Marcos DES_MILESTONE: `process_started`, `modules_loaded`, `game_entry`, `first_data_file`, `first_savedata_mount`, `flip_1/60/600/3600`. Não há marco de título, menu ou HUD (o autopilot detecta o HUD por pixels).
 - O save de referência `user/saves-backup/kyty-fg-20261023-2050` está provavelmente na primeira área do jogo (tutorial de Boletaria), segundo o Ronaldo ("acho"), sem confirmação por captura.
 - Pico de memória medido: 13,2–14,0 GB (platô de ~13 GB). O limite de 12 GB do PLAN §8.3 precisa ser revisto.
+- `KYTY_FPS_LIMIT` conta sempre flips (quadros renderizados). Só `display` com DLSS-G divide a taxa do monitor por `FrameGen::PresentedFrames()` (desport-next `7358db0d`).
+- C++ gerado por Bash/heredoc já quebrou `\n` dentro de string literal (window.cpp do up4): antes de entregar, rode um varredor de strings sem fechamento.
+- O CMake do engine não usa `-Werror`. Os alvos `add_kyty_full_emulator_test` são EXCLUDE_FROM_ALL; `virtual_memory_allocation_tests` não compila na desport-next (falta `GuestBackingStore::MapFixed`).
