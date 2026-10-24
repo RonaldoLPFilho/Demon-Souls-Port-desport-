@@ -33,6 +33,7 @@ TOP = 10
 
 MILESTONE_RE = re.compile(r'^DES_MILESTONE (\S+) t=(\d+)(?: (.*))?$')
 FPS_RE = re.compile(r'^DES_FPS t=(\d+) fps=([\d.]+)$')
+FRAME_RE = re.compile(r'^DES_FRAME (.*)$')  # desport: DES_FRAME (histograma de vblanks, percentis, esperas, contadores)
 SLOW_CALL_RE = re.compile(r'^DES_SLOW (.*)$')
 MEM_RE = re.compile(r'^DES_MEM t=(\d+) name=(\S+) bytes=(\d+) count=(\d+)$')
 FAULTS_RE = re.compile(r'^DES_FAULTS (.*)$')
@@ -86,7 +87,7 @@ def faults_summary(windows):
 def parse_log(path):
     text = path.read_text(encoding='utf-8', errors='replace')
     lines = text.splitlines()
-    report = dict(lines=len(lines), milestones=[], fps=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], crashes=[], fault_windows=[], modules=[], error=None, host_exception=None,
+    report = dict(lines=len(lines), milestones=[], fps=[], frames=[], slow_calls=[], counters=[], stats=[], stat_addrs=[], mem_samples=[], crashes=[], fault_windows=[], modules=[], error=None, host_exception=None,
                   stub_calls={}, stubbed_at_link=0, vulkan={}, warnings={})
     pending_module = None
     for i, line in enumerate(lines):
@@ -94,6 +95,8 @@ def parse_log(path):
             report['milestones'].append(dict(name=m.group(1), t_ms=int(m.group(2)), detail=m.group(3) or ''))
         elif m := FPS_RE.match(line):
             report['fps'].append((int(m.group(1)), float(m.group(2))))
+        elif m := FRAME_RE.match(line):
+            report['frames'].append({k: float(v) for k, v in (kv.split('=', 1) for kv in m.group(1).split() if '=' in kv)})
         elif m := SLOW_CALL_RE.match(line):
             report['slow_calls'].append(dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv))
         elif m := FAULTS_RE.match(line):
@@ -282,7 +285,7 @@ def triage(target):
         seen = {m['name'] for m in report['milestones']}
         report['milestones'] += [m for m in extra['milestones'] if m['name'] not in seen]
         report['milestones'].sort(key=lambda m: m['t_ms'])
-        for key in ('fps', 'slow_calls', 'counters', 'stats', 'stat_addrs', 'mem_samples', 'crashes', 'fault_windows'):
+        for key in ('fps', 'frames', 'slow_calls', 'counters', 'stats', 'stat_addrs', 'mem_samples', 'crashes', 'fault_windows'):
             if not report[key]:
                 report[key] = extra[key]
     report['run'] = run
@@ -396,6 +399,67 @@ def _by_minute(fps):
     return out
 
 
+FRAME_WAITS = ('gpu_wait', 'readback_wait', 'download_wait', 'compile', 'record_wait', 'upload_wait', 'idle', 'cpu')
+FRAME_COUNTS = ('sync_reads_guest', 'sync_reads_render', 'rb_reject_size', 'rb_reject_backing', 'rb_reject_image',
+                'rb_reject_capacity', 'sync_downloads', 'async_readbacks', 'pipeline_static_hits',
+                'pipeline_static_misses', 'pipeline_driver_hits')
+
+
+def frame_summary(windows):
+    """Resume as janelas DES_FRAME: histograma de vblanks somado, percentis, esperas médias por quadro, contadores."""
+    windows = [w for w in windows if w.get('frames', 0) > 0]
+    if not windows:
+        return None
+    total = sum(w['frames'] for w in windows)
+    hist = {k: sum(w.get(k, 0) for w in windows) for k in ('v1', 'v2', 'v3', 'v4p')}
+
+    def median(key):
+        values = sorted(w[key] for w in windows if key in w)
+        return values[len(values) // 2] if values else None
+
+    waits = {}
+    for key in FRAME_WAITS:
+        have = [w for w in windows if key in w]
+        if have:  # média ponderada pelos quadros de cada janela
+            waits[key] = sum(w[key] * w['frames'] for w in have) / sum(w['frames'] for w in have)
+    counts = {key: sum(w.get(key, 0) for w in windows) for key in FRAME_COUNTS}
+    return dict(windows=len(windows), frames=total, hist=hist, vblank=median('vblank'),
+                p50=median('p50'), p95=median('p95'), p99=median('p99'),
+                p99_worst=max((w['p99'] for w in windows if 'p99' in w), default=None),
+                max=max((w['max'] for w in windows if 'max' in w), default=None),
+                waits=waits, counts=counts)
+
+
+def render_frames(summary):
+    """Linhas Markdown da seção de quadros (DES_FRAME)."""
+    L = ['### Quadros (DES_FRAME)\n']
+    hist = summary['hist']
+    seen = sum(hist.values()) or 1
+    L.append(f"- {summary['windows']} janelas, {summary['frames']:.0f} quadros (vblank {summary['vblank']:.0f} Hz). "
+             'Quadros por duração em vblanks: ' +
+             ', '.join(f"{label} {hist[key]:.0f} ({100 * hist[key] / seen:.1f}%)"
+                       for label, key in (('1', 'v1'), ('2', 'v2'), ('3', 'v3'), ('4+', 'v4p'))))
+    if summary['p50'] is not None:
+        L.append(f"- Tempo de quadro (mediana das janelas): p50 {summary['p50']:.2f} ms, p95 {summary['p95']:.2f} ms, "
+                 f"p99 {summary['p99']:.2f} ms; pior p99 {summary['p99_worst']:.2f} ms, máximo {summary['max']:.2f} ms")
+    if summary['waits']:
+        L.append('- Média por quadro (ms, thread de render): ' +
+                 ', '.join(f"{k} {v:.3f}" for k, v in summary['waits'].items()))
+    c = summary['counts']
+    per = summary['frames'] or 1
+    L.append(f"- Leituras síncronas: guest {c['sync_reads_guest']:.0f} ({c['sync_reads_guest'] / per:.1f}/quadro), "
+             f"render {c['sync_reads_render']:.0f}; downloads síncronos {c['sync_downloads']:.0f}, "
+             f"readbacks assíncronos {c['async_readbacks']:.0f}")
+    L.append(f"- Readback recusado: tamanho {c['rb_reject_size']:.0f}, backing {c['rb_reject_backing']:.0f}, "
+             f"imagem {c['rb_reject_image']:.0f}, capacidade {c['rb_reject_capacity']:.0f}")
+    hits, misses = c['pipeline_static_hits'], c['pipeline_static_misses']
+    rate = f" ({100 * hits / (hits + misses):.1f}% de acerto)" if hits + misses else ''
+    L.append(f"- Cache estático de pipelines: {hits:.0f} acertos, {misses:.0f} erros{rate}; "
+             f"cache de driver: {c['pipeline_driver_hits']:.0f} acertos (só visíveis nos builds Fast)")
+    L.append('')
+    return L
+
+
 def render(report):
     L = ['# Triagem da execução\n']
     if 'scenario' in report:
@@ -433,6 +497,9 @@ def render(report):
         L.append('- Por minuto: ' + ', '.join(
             f"{minute}′ {sum(v) / len(v):.1f}" for minute, v in sorted(_by_minute(report['fps']).items())))
         L.append('')
+    frame_sum = frame_summary(report.get('frames') or [])
+    if frame_sum:
+        L.extend(render_frames(frame_sum))
     if report.get('slow_calls'):
         L.append('## Chamadas acima de 1 s (DES_SLOW)\n')
         L.append('| t (ms) | Escopo | ms | Endereço |')

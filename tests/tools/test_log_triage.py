@@ -97,6 +97,51 @@ class TriageTests(unittest.TestCase):
             self.assertIn('3 janelas: mínimo 3.0, mediana 5.0, máximo 40.0', text)
             self.assertIn("0′ 4.0, 1′ 40.0", text)
 
+    FRAME_LINES = (
+        'DES_FRAME t=5000 frames=300 vblank=120 v1=100 v2=190 v3=8 v4p=2 p50=16.70 p95=25.00 p99=33.40 max=41.00 '
+        'gpu_wait=1.000 readback_wait=2.000 download_wait=0.000 compile=0.100 record_wait=0.000 upload_wait=0.000 '
+        'idle=0.500 cpu=9.000 sync_reads_guest=2400 sync_reads_render=10 rb_reject_size=5 rb_reject_backing=0 '
+        'rb_reject_image=0 rb_reject_capacity=0 sync_downloads=3 async_readbacks=40 pipeline_static_hits=90 '
+        'pipeline_static_misses=10 pipeline_driver_hits=4\n'
+        'DES_FRAME t=10000 frames=100 vblank=120 v1=0 v2=100 v3=0 v4p=0 p50=16.70 p95=16.80 p99=17.00 max=60.00 '
+        'gpu_wait=3.000 readback_wait=4.000 download_wait=0.000 compile=0.000 record_wait=0.000 upload_wait=0.000 '
+        'idle=0.000 cpu=7.000 sync_reads_guest=800 sync_reads_render=0 rb_reject_size=0 rb_reject_backing=1 '
+        'rb_reject_image=0 rb_reject_capacity=0 sync_downloads=0 async_readbacks=10 pipeline_static_hits=10 '
+        'pipeline_static_misses=0 pipeline_driver_hits=0\n'
+        'DES_FRAME t=15000 frames=0 sync_reads_guest=0 sync_reads_render=0 rb_reject_size=0 rb_reject_backing=0 '
+        'rb_reject_image=0 rb_reject_capacity=0 sync_downloads=0 async_readbacks=0 pipeline_static_hits=0 '
+        'pipeline_static_misses=0 pipeline_driver_hits=0\n')
+
+    def test_frame_windows(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            (run / 'log.txt').write_text('DES_FPS t=5000 fps=60.0\n' + self.FRAME_LINES, encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            self.assertEqual(len(report['frames']), 3)
+            summary = log_triage.frame_summary(report['frames'])
+            self.assertEqual(summary['windows'], 2)  # a janela sem quadros fica fora
+            self.assertEqual(summary['frames'], 400)
+            self.assertEqual(summary['hist'], dict(v1=100, v2=290, v3=8, v4p=2))
+            self.assertAlmostEqual(summary['waits']['gpu_wait'], (1.0 * 300 + 3.0 * 100) / 400)
+            self.assertAlmostEqual(summary['waits']['cpu'], (9.0 * 300 + 7.0 * 100) / 400)
+            self.assertEqual(summary['counts']['sync_reads_guest'], 3200)
+            self.assertEqual(summary['p99_worst'], 33.4)
+            self.assertEqual(summary['max'], 60.0)
+            text = log_triage.render(report)
+            self.assertIn('### Quadros (DES_FRAME)', text)
+            self.assertIn('1 100 (25.0%), 2 290 (72.5%), 3 8 (2.0%), 4+ 2 (0.5%)', text)
+            self.assertIn('guest 3200 (8.0/quadro)', text)
+            self.assertIn('100 acertos, 10 erros (90.9% de acerto)', text)
+
+    def test_frame_lines_from_stdout_and_absent(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = make_run(root)
+            self.assertIsNone(log_triage.frame_summary(log_triage.triage(run)[0]['frames']))
+            self.assertNotIn('DES_FRAME', log_triage.render(log_triage.triage(run)[0]))
+            (run / 'stdout.txt').write_text(self.FRAME_LINES, encoding='utf-8')
+            report, _ = log_triage.triage(run)
+            self.assertEqual(len(report['frames']), 3)
+
     def test_slow_calls(self):
         with tempfile.TemporaryDirectory() as root:
             run = make_run(root)
