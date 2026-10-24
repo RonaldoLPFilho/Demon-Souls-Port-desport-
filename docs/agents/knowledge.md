@@ -38,7 +38,7 @@ Fatos verificados. Cada item diz de onde veio; "hipótese" quando não foi testa
   Com DLSS: present-id ligado e teto de espaço de endereços `0xE000000000` (sem isso, `vkCreateDevice` falha).
 - Ultrawide: `KYTY_ULTRAWIDE=<LxA>`, `KYTY_ULTRAWIDE_RENDER=1`, `KYTY_ULTRAWIDE_HUD=native|16x9`,
   `KYTY_ULTRAWIDE_MOVIES=pillarbox|stretch`, `KYTY_ULTRAWIDE_HUD_LAYOUT=16x9` (desport-uw2).
-- Geração de quadros: `KYTY_FRAMEGEN=<n>`. O código recusa `KYTY_FRAMEGEN` junto com `KYTY_DLSS` (fase B pendente).
+- Geração de quadros: `KYTY_FRAMEGEN=<n>`. Fase B (`desport-dlssb`, em `desport-next`): SR + DLSS-G + Reflex juntos, log `DES_DLSS ... combined=<0|1> streamline=<estado>`. Com SR+FG há um índice de quadro por quadro do jogo, viewport 0 para os dois, e o `slSetConstants` vem do SR. `slGetNewFrameToken` avança um anel de 6 posições se o índice muda: constantes e tags valem pelo índice, não pelo ponteiro.
 - Camadas Vulkan de overlay quebram o Streamline: `DISABLE_RTSS_LAYER=1`, `DISABLE_VULKAN_OBS_CAPTURE=1`,
   `DISABLE_VK_LAYER_VALVE_steam_overlay_1=1`, `EOS_OVERLAY_DISABLE_VULKAN_WIN64=1`.
 - Canal ao vivo: `KYTY_LIVE_FILE` (run.ps1 define; `tools/capture.ps1` escreve comandos de captura).
